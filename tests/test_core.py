@@ -6,13 +6,25 @@ import random
 import pytest
 
 from src.core.ai import AIController, plan_turn, simulate_shot
-from src.core.entities import Worm
+from src.core.constants import WORM_RADIUS
+from src.core.entities import Projectile, Worm
+from src.core.events import Explosion, WormDrowned
 from src.core.mapgen import generate_terrain
 from src.core.match import Match, Phase, Team, TeamConfig
+from src.core.rng import RngStreams
+from src.core.scheme import GameScheme
 from src.core.terrain import Terrain
-from src.core.weapons import AIRSTRIKE, BAZOOKA, GRENADE, SHOTGUN, WEAPONS
+from src.core.weapons import FireContext, get_behavior, get_weapon
 from src.core.world import World
-from src.settings import RETREAT_TIME, TURN_TIME, WORM_MAX_HP, WORM_RADIUS
+
+BAZOOKA = get_weapon("bazooka")
+GRENADE = get_weapon("grenade")
+SHOTGUN = get_weapon("shotgun")
+AIRSTRIKE = get_weapon("airstrike")
+DEFAULTS = GameScheme()
+WORM_MAX_HP = DEFAULTS.worms.hp
+TURN_TIME = DEFAULTS.turn.turn_time
+RETREAT_TIME = DEFAULTS.turn.retreat_time
 
 DT = 1 / 60
 
@@ -21,14 +33,26 @@ def flat_world(width: int = 800, height: int = 400, ground: int = 300, water: in
     terrain = Terrain(width, height)
     for x in range(width):
         terrain.fill_column(x, ground)
-    return World(terrain, water_level=water)
+    scheme = GameScheme()
+    scheme.terrain.water_level = water
+    return World(terrain, scheme)
 
 
 def place(world: World, x: float, team: int = 0, name: str = "W") -> Worm:
     top = world.terrain.surface_y(x)
     assert top is not None
-    worm = world.add_worm(Worm(name, team, x, top - WORM_RADIUS - 1, grounded=True))
+    worm = world.add_worm(Worm(name, team, x=x, y=top - WORM_RADIUS - 1, grounded=True))
     return worm
+
+
+def fire(
+    world: World, worm: Worm, key: str, power: float = 1.0, target_x: float | None = None
+) -> list[Projectile]:
+    """Fire a catalog weapon directly through its behavior; returns new projectiles."""
+    before = list(world.projectiles)
+    weapon = get_weapon(key)
+    get_behavior(weapon.behavior).fire(FireContext.for_worm(world, worm, weapon, power, target_x))
+    return [p for p in world.projectiles if p not in before]
 
 
 def run(world_or_match: World | Match, seconds: float) -> None:
@@ -40,9 +64,8 @@ def make_match(world: World, ai: tuple[bool, bool] = (False, False)) -> Match:
     teams = []
     for index in range(2):
         worms = [w for w in world.worms if w.team_index == index]
-        ammo = {w.key: w.ammo for w in WEAPONS}
-        teams.append(Team(f"T{index}", (255, 0, 0), ai[index], worms, ammo))
-    return Match(world, teams, random.Random(1))
+        teams.append(Team(f"T{index}", (255, 0, 0), ai[index], worms))
+    return Match(world, teams, RngStreams(1))
 
 
 # ------------------------------------------------------------------ terrain
@@ -90,7 +113,7 @@ def test_generator_is_deterministic_island() -> None:
 # ------------------------------------------------------------------ worms
 def test_worm_falls_and_lands() -> None:
     world = flat_world()
-    worm = world.add_worm(Worm("W", 0, 400, 200))
+    worm = world.add_worm(Worm("W", 0, x=400, y=200))
     run(world, 2)
     assert worm.grounded
     assert worm.y == pytest.approx(300 - WORM_RADIUS - 1, abs=2)
@@ -99,7 +122,7 @@ def test_worm_falls_and_lands() -> None:
 
 def test_long_fall_causes_damage() -> None:
     world = flat_world(height=1400, ground=1300, water=1380)
-    worm = world.add_worm(Worm("W", 0, 400, 20))
+    worm = world.add_worm(Worm("W", 0, x=400, y=20))
     run(world, 4)
     assert worm.grounded
     assert worm.hp < WORM_MAX_HP
@@ -133,10 +156,10 @@ def test_jump_leaves_ground() -> None:
 def test_water_kills_worm() -> None:
     world = flat_world()
     world.terrain.carve_circle(400, 340, 120)  # hole down into the water
-    worm = world.add_worm(Worm("W", 0, 400, 150))
+    worm = world.add_worm(Worm("W", 0, x=400, y=150))
     run(world, 3)
     assert not worm.alive
-    assert any(e.kind == "drown" for e in world.events)
+    assert world.bus.of_type(WormDrowned)
 
 
 # ---------------------------------------------------------------- weapons
@@ -156,11 +179,11 @@ def test_bazooka_explodes_on_terrain() -> None:
     shooter = place(world, 100)
     shooter.aim = 0.5
     before = world.terrain.solid_count()
-    world.fire_projectile(shooter, BAZOOKA, 0.6)
+    fire(world, shooter, "bazooka", 0.6)
     run(world, 4)
     assert not world.projectiles
     assert world.terrain.solid_count() < before
-    assert any(e.kind == "explosion" for e in world.events)
+    assert world.bus.of_type(Explosion)
 
 
 def test_bazooka_hits_worm_directly() -> None:
@@ -168,7 +191,7 @@ def test_bazooka_hits_worm_directly() -> None:
     shooter = place(world, 100)
     target = place(world, 200, team=1)
     shooter.aim = 0.0
-    world.fire_projectile(shooter, BAZOOKA, 1.0)
+    fire(world, shooter, "bazooka", 1.0)
     run(world, 0.5)
     assert target.hp <= WORM_MAX_HP - 40
 
@@ -192,13 +215,13 @@ def test_grenade_bounces_and_waits_for_fuse() -> None:
     world = flat_world()
     shooter = place(world, 100)
     shooter.aim = 0.8
-    grenade = world.fire_projectile(shooter, GRENADE, 0.5)
+    (grenade,) = fire(world, shooter, "grenade", 0.5)
     run(world, 2.0)
     assert grenade.alive and grenade in world.projectiles  # still ticking after landing
     assert grenade.y < 300
     run(world, 1.2)
     assert not world.projectiles
-    assert any(e.kind == "explosion" for e in world.events)
+    assert world.bus.of_type(Explosion)
 
 
 def test_shotgun_hits_worm_in_line_of_sight() -> None:
@@ -206,17 +229,18 @@ def test_shotgun_hits_worm_in_line_of_sight() -> None:
     shooter = place(world, 100)
     target = place(world, 300, team=1)
     shooter.aim = 0.0
-    x, _ = world.fire_hitscan(shooter, SHOTGUN)
-    assert x == pytest.approx(target.x - WORM_RADIUS, abs=3)
-    assert target.hp == WORM_MAX_HP - SHOTGUN.damage
+    fire(world, shooter, "shotgun")
+    explosion = world.bus.of_type(Explosion)[-1]
+    assert explosion.x == pytest.approx(target.x - WORM_RADIUS, abs=3)
+    assert target.hp == WORM_MAX_HP - SHOTGUN.param("damage")
 
 
 def test_airstrike_drops_missiles_on_target() -> None:
     world = flat_world()
     owner = place(world, 100)
     target = place(world, 500, team=1)
-    world.launch_airstrike(500, AIRSTRIKE, owner)
-    assert len(world.projectiles) == AIRSTRIKE.missiles
+    fire(world, owner, "airstrike", target_x=500)
+    assert len(world.projectiles) == AIRSTRIKE.param("missiles")
     run(world, 4)
     assert not world.projectiles
     assert target.hp < WORM_MAX_HP
@@ -268,10 +292,10 @@ def test_charge_fires_with_power_and_airstrike_ammo() -> None:
 
     run(match, 8)  # next team uses its only airstrike
     match.select_weapon(3)
-    assert match.weapon is AIRSTRIKE
+    assert match.weapon.key == "airstrike"
     match.fire_at(100)
     assert match.active_team.ammo["airstrike"] == 0
-    assert match.weapon is BAZOOKA  # falls back when empty
+    assert match.weapon.key == "bazooka"  # falls back when empty
 
 
 def test_self_damage_ends_turn_and_dead_team_loses() -> None:
@@ -292,9 +316,11 @@ def test_self_damage_ends_turn_and_dead_team_loses() -> None:
 def test_match_create_spawns_teams_on_ground() -> None:
     terrain = generate_terrain(2000, 1000, 930, seed=3)
     configs = [TeamConfig("A", (1, 1, 1)), TeamConfig("B", (2, 2, 2), is_ai=True)]
-    match = Match.create(configs, terrain, seed=3, worms_per_team=4)
+    scheme = GameScheme()
+    scheme.worms.count = 4
+    match = Match.create(configs, terrain, seed=3, scheme=scheme)
     assert len(match.world.worms) == 8
-    assert all(not match.world.worm_collides(w.x, w.y) for w in match.world.worms)
+    assert all(not match.world.worm_collides(w, w.x, w.y) for w in match.world.worms)
     run(match, 1)
     assert all(w.alive and w.grounded for w in match.world.worms)
 
@@ -312,10 +338,9 @@ def test_ai_plan_hits_enemy_on_flat_ground() -> None:
     except StopIteration as stop:
         plan = stop.value
     assert plan.score > 20
-    if plan.target_x is None and WEAPONS[plan.weapon_index].key != "shotgun":
-        impact = simulate_shot(
-            world, match.active_worm, WEAPONS[plan.weapon_index], plan.facing, plan.aim, plan.power
-        )
+    if plan.target_x is None and plan.weapon_key != "shotgun":
+        weapon = get_weapon(plan.weapon_key)
+        impact = simulate_shot(world, match.active_worm, weapon, plan.facing, plan.aim, plan.power)
         assert impact is not None and math.hypot(impact[0] - enemy.x, impact[1] - enemy.y) < 45
 
 
@@ -325,7 +350,7 @@ def test_ai_controller_plays_its_turn() -> None:
     enemy = place(world, 550, 1)
     match = make_match(world, ai=(True, False))
     ai = AIController(match, random.Random(0), noise=0.0)
-    ai.think_budget = 1.0
+    ai.think_steps = 100_000
     for _ in range(int(15 / DT)):
         ai.update(DT)
         match.update(DT)
@@ -338,9 +363,11 @@ def test_ai_controller_plays_its_turn() -> None:
 def test_full_ai_match_finishes() -> None:
     terrain = generate_terrain(2000, 1000, 930, seed=1)
     configs = [TeamConfig("A", (1, 1, 1), True), TeamConfig("B", (2, 2, 2), True)]
-    match = Match.create(configs, terrain, seed=1, worms_per_team=2)
-    ai = AIController(match, random.Random(1))
-    ai.think_budget = 1.0
+    scheme = GameScheme()
+    scheme.worms.count = 2
+    match = Match.create(configs, terrain, seed=1, scheme=scheme)
+    ai = AIController(match)
+    ai.think_steps = 100_000
     for _ in range(int(20 * 60 / DT)):
         ai.update(DT)
         match.update(DT)

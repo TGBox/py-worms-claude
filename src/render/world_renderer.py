@@ -7,7 +7,7 @@ import pygame
 
 from src.core.entities import Worm
 from src.core.match import Match, Phase
-from src.core.weapons import FireMode
+from src.core.weapons import AimMode
 from src.render import fonts
 from src.render.camera import Camera
 from src.render.effects import Effects
@@ -128,7 +128,7 @@ class WorldRenderer:
             return
         dx, dy = worm.aim_vector()
         sx, sy = camera.to_screen(worm.x, worm.y)
-        if match.weapon.mode != FireMode.TARGETED:
+        if match.weapon.aim not in (AimMode.TARGET_POINT, AimMode.NONE):
             cross = (sx + dx * 46, sy + dy * 46)
             pygame.draw.circle(canvas, (255, 70, 70), cross, 6, 2)
             pygame.draw.circle(canvas, (255, 70, 70), cross, 1)

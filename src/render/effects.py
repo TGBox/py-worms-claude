@@ -6,11 +6,20 @@ from dataclasses import dataclass
 
 import pygame
 
+from src.core.constants import GRAVITY
+from src.core.events import (
+    Damage,
+    Event,
+    Explosion,
+    Splash,
+    Tracer,
+    WormDied,
+    WormDrowned,
+)
 from src.core.terrain import Terrain
-from src.core.world import Event
 from src.render import fonts
 from src.render.camera import Camera
-from src.settings import COLOR_SOIL, COLOR_TEXT, GRAVITY
+from src.settings import COLOR_SOIL, COLOR_TEXT
 
 
 @dataclass
@@ -54,7 +63,7 @@ class Effects:
 
     def spawn(self, event: Event) -> None:
         rng = self.rng
-        if event.kind == "explosion":
+        if isinstance(event, Explosion):
             r = event.radius
             self.timed.append(TimedEffect("flash", event.x, event.y, 0.35, 0.35, radius=r))
             for _ in range(int(r * 1.2)):
@@ -87,13 +96,13 @@ class Effects:
                         gravity=-0.05,
                     )
                 )
-        elif event.kind == "damage":
-            self.timed.append(TimedEffect("number", event.x, event.y, 1.4, 1.4, value=event.value))
-        elif event.kind == "tracer":
+        elif isinstance(event, Damage):
+            self.timed.append(TimedEffect("number", event.x, event.y, 1.4, 1.4, value=event.amount))
+        elif isinstance(event, Tracer):
             self.timed.append(
                 TimedEffect("tracer", event.x, event.y, 0.25, 0.25, x2=event.x2, y2=event.y2)
             )
-        elif event.kind in ("splash", "drown"):
+        elif isinstance(event, (Splash, WormDrowned)):
             for _ in range(24):
                 self.particles.append(
                     Particle(
@@ -107,7 +116,7 @@ class Effects:
                         rng.uniform(1.5, 3),
                     )
                 )
-        elif event.kind == "death":
+        elif isinstance(event, WormDied):
             self.gravestones.append(Gravestone(event.x, event.y))
 
     def smoke_trail(self, x: float, y: float) -> None:

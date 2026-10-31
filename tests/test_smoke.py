@@ -9,14 +9,28 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
 pygame = pytest.importorskip("pygame")
 
+from src.core import persistence
+from src.core.constants import WORLD_HEIGHT, WORLD_WIDTH
 from src.core.match import Phase, TeamConfig
+from src.core.scheme import GameScheme
 from src.main import Game, letterbox
 from src.maps import RANDOM_MAP, available_maps, load_map
 from src.scenes.match_scene import MatchScene
-from src.scenes.menu import MenuScene
-from src.settings import TEAM_COLORS, TEAM_NAMES, WORLD_HEIGHT, WORLD_WIDTH
+from src.scenes.menu import BattleSetupScene, MainMenuScene
+from src.settings import TEAM_COLORS, TEAM_NAMES
 
 DT = 1 / 30
+
+
+@pytest.fixture(autouse=True)
+def isolated_data_dir(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(persistence.DATA_DIR_ENV, str(tmp_path / "data"))
+
+
+def scheme(worms: int) -> GameScheme:
+    result = GameScheme()
+    result.worms.count = worms
+    return result
 
 
 def post(event_type: int, **attributes: object) -> None:
@@ -39,39 +53,60 @@ def test_bundled_maps_load() -> None:
     pygame.init()
     pygame.display.set_mode((320, 200))
     for name in names:
-        loaded = load_map(name, seed=1)
+        loaded = load_map(name, seed=1, water_level=930)
         assert (loaded.terrain.width, loaded.terrain.height) == (WORLD_WIDTH, WORLD_HEIGHT)
         assert loaded.terrain.solid_count() > WORLD_WIDTH * 100
         assert loaded.name == name
 
 
 def test_menu_navigation_starts_match_and_returns() -> None:
-    MenuScene.settings.team_count = 2
+    BattleSetupScene.state.team_count = 2
     game = Game()
-    assert isinstance(game.scene, MenuScene)
+    assert isinstance(game.scene, MainMenuScene)
+    post(pygame.KEYDOWN, key=pygame.K_DOWN)  # "Battle einrichten"
+    post(pygame.KEYDOWN, key=pygame.K_DOWN)  # disabled entries are skipped
+    post(pygame.KEYDOWN, key=pygame.K_UP)
+    post(pygame.KEYDOWN, key=pygame.K_RETURN)
+    game.step(DT)
+    game.step(DT)
+    setup = game.scene
+    assert isinstance(setup, BattleSetupScene)
     for key in (pygame.K_RIGHT, pygame.K_LEFT, pygame.K_DOWN, pygame.K_DOWN, pygame.K_UP):
         post(pygame.KEYDOWN, key=key)
     post(pygame.MOUSEMOTION, pos=(640, 200), rel=(0, 0), buttons=(0, 0, 0))
     game.step(DT)
-    menu = game.scene
-    assert isinstance(menu, MenuScene)
-    menu.selected = len(menu.items()) - 2  # "Spiel starten"
+    labels = [item.label() for item in setup.items()]
+    setup.selected = labels.index("Schema: Standard")
+    post(pygame.KEYDOWN, key=pygame.K_RIGHT)  # next scheme
+    game.step(DT)
+    assert setup.state.scheme_name != "Standard"
+    setup.selected = len(setup.items()) - 2  # "Spiel starten"
     post(pygame.KEYDOWN, key=pygame.K_RETURN)
     game.step(DT)
     game.step(DT)
     assert isinstance(game.scene, MatchScene)
+    assert game.scene.match.scheme.name == setup.state.scheme_name
     post(pygame.KEYDOWN, key=pygame.K_ESCAPE)
     game.step(DT)
     game.step(DT)
-    assert isinstance(game.scene, MenuScene)
+    assert isinstance(game.scene, MainMenuScene)
     post(pygame.KEYDOWN, key=pygame.K_ESCAPE)
     game.step(DT)
     assert not game.running
 
 
+def test_quick_match_starts_human_versus_ai() -> None:
+    game = Game()
+    post(pygame.KEYDOWN, key=pygame.K_RETURN)  # "Schnelles Spiel"
+    game.step(DT)
+    game.step(DT)
+    assert isinstance(game.scene, MatchScene)
+    assert [t.is_ai for t in game.scene.match.teams] == [False, True]
+
+
 @pytest.mark.parametrize("map_name", available_maps())
 def test_human_turn_inputs_on_every_map(map_name: str) -> None:
-    scene = MatchScene(configs(False, False), map_name, worms_per_team=2, seed=5)
+    scene = MatchScene(configs(False, False), map_name, scheme(2), seed=5)
     game = Game(scene)
     match = scene.match
     game.step(DT)
@@ -115,8 +150,8 @@ def test_human_turn_inputs_on_every_map(map_name: str) -> None:
 
 
 def test_ai_versus_ai_match_runs_to_the_end() -> None:
-    scene = MatchScene(configs(True, True, True), RANDOM_MAP, worms_per_team=1, seed=11)
-    scene.ai.think_budget = 1.0
+    scene = MatchScene(configs(True, True, True), RANDOM_MAP, scheme(1), seed=11)
+    scene.ai.think_steps = 100_000
     game = Game(scene)
     match = scene.match
     for frame in range(int(15 * 60 / DT)):
@@ -131,4 +166,4 @@ def test_ai_versus_ai_match_runs_to_the_end() -> None:
     post(pygame.KEYDOWN, key=pygame.K_RETURN)
     game.step(DT)
     game.step(DT)
-    assert isinstance(game.scene, MenuScene)
+    assert isinstance(game.scene, MainMenuScene)

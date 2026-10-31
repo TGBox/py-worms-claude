@@ -16,6 +16,10 @@ Python ohne pygame und dadurch headless testbar.
 - KI simuliert Flugbahnen mit derselben Physik wie das Spiel und wählt den Schuss mit dem besten
   Schaden-Nutzen-Verhältnis (inkl. Wind, Abprallen und Eigenschaden)
 - Kamera folgt Würmern und Geschossen, virtuelle Auflösung 1280×720 mit Letterboxing
+- **Hauptmenü** mit „Schnelles Spiel“ (Mensch gegen KI) und „Battle einrichten“ (Teams, Karte, Schema)
+- **Spielschemata** (JSON): Zugzeit, Rückzug, Würmer, Gesundheit, Fallschaden, Wasserspiegel, Wind,
+  Schwerkraft sowie Munition, Verzögerung und Stärke pro Waffe. Mitgeliefert: „Standard“, „Schnell“
+- Deterministische Simulation mit festen Zeitschritten und Eingabeprotokoll (Grundlage für Replays)
 
 ## Steuerung
 
@@ -31,6 +35,15 @@ Python ohne pygame und dadurch headless testbar.
 | P | Pause |
 | ESC | Zurück zum Menü (im Menü: Beenden) |
 | F11 | Vollbild umschalten |
+
+## Eigene Spielschemata
+Schemata liegen als JSON-Dateien in `assets/schemes/` (mitgeliefert) und im Nutzerdatenordner
+(`%APPDATA%\py-worms-claude\schemes\` unter Windows, sonst `~/.local/share/py-worms-claude/schemes/`).
+Am einfachsten kopierst du `assets/schemes/standard.json` dorthin, änderst `name` und die Werte.
+Das Schema erscheint dann unter „Battle einrichten“. Fehlende Felder bekommen Standardwerte.
+
+Die Tastenbelegung lässt sich in `settings.json` im selben Ordner anpassen
+(`{"version": 1, "controls": {"jump": ["return"], ...}}`, Tastennamen wie in pygame).
 
 ## Eigene Karten
 Lege eine PNG-Datei in `assets/maps/`. Nicht-transparente Pixel sind fester Boden, transparente Pixel
@@ -65,25 +78,36 @@ py-worms-claude/
 ├── assets/
 │   ├── audio/          # Sound-Effekte und Musik (derzeit ungenutzt)
 │   ├── maps/           # PNG-Karten (Doppelinsel, Canyon)
+│   ├── schemes/        # Spielschemata (Standard, Schnell)
 │   └── sprites/        # Texturen, Sprites und Grafiken
+├── docs/               # Implementierungsplan und Architekturentscheidungen (ADRs)
 ├── src/
 │   ├── core/           # Reine Spiellogik ohne pygame
-│   │   ├── terrain.py  # Zerstörbares Pixel-Terrain
-│   │   ├── mapgen.py   # Prozeduraler Insel-Generator
-│   │   ├── entities.py # Würmer und Geschosse
-│   │   ├── weapons.py  # Waffendefinitionen
-│   │   ├── world.py    # Physik, Explosionen, Schaden
-│   │   ├── match.py    # Rundenablauf, Teams, Sieg
-│   │   └── ai.py       # KI-Gegner
+│   │   ├── constants.py   # Feste Simulationskonstanten
+│   │   ├── scheme.py      # Spielschema (alle einstellbaren Regeln)
+│   │   ├── rng.py         # Benannte, deterministische Zufallsströme
+│   │   ├── events.py      # Typisierte Ereignisse + Ereignisbus
+│   │   ├── persistence.py # Datenordner, versioniertes JSON, Migrationen
+│   │   ├── physics.py     # Körper-Basis, Raster-Abfragen
+│   │   ├── terrain.py     # Zerstörbares Pixel-Terrain
+│   │   ├── mapgen.py      # Prozeduraler Insel-Generator
+│   │   ├── entities.py    # Würmer und Geschosse
+│   │   ├── weapons/       # Waffen-Register, Verhaltensbausteine, Katalog
+│   │   ├── world.py       # Bewegung, Explosionen, Schaden
+│   │   ├── match.py       # Rundenablauf, Teams, Sieg, Eingabeprotokoll, Replay
+│   │   └── ai.py          # KI-Gegner
 │   ├── render/         # pygame-Darstellung (Terrain, Welt, HUD, Effekte, Kamera)
-│   ├── scenes/         # Menü und Spielszene
+│   ├── scenes/         # Hauptmenü, Battle-Setup und Spielszene
 │   ├── maps.py         # Karten laden (Zufall oder PNG)
+│   ├── controls.py     # Aktions-Mapping und Tastenbelegung
 │   ├── main.py         # Game-Loop, Fenster, Letterboxing
-│   ├── settings.py     # Auflösung, Physik-Konstanten, Farben
+│   ├── settings.py     # Darstellung: Auflösung, Farben, Team-Vorgaben
 │   ├── tools.py        # Format & Lint Helfer
 │   └── build.py        # PyInstaller Build-Skript
 └── tests/
-    ├── test_core.py    # Logik-Tests (Terrain, Physik, Waffen, Runden, KI)
+    ├── test_core.py        # Logik-Tests (Terrain, Physik, Waffen, Runden, KI)
+    ├── test_foundation.py  # Schema, Ereignisse, Register, Persistenz, Determinismus
+    ├── test_performance.py # Leistungsbudget der Simulation
     ├── test_smoke.py   # Headless-Tests der kompletten pygame-Anwendung
     └── test_game.py    # Einstellungen
 ```

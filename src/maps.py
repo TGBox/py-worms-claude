@@ -1,23 +1,16 @@
 """Map loading: procedural islands or PNG maps from assets/maps (transparent = air)."""
 
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 import pygame
 
+from src.core.constants import WORLD_HEIGHT, WORLD_WIDTH
 from src.core.mapgen import generate_terrain
+from src.core.persistence import assets_dir
 from src.core.terrain import Terrain
-from src.settings import WATER_LEVEL, WORLD_HEIGHT, WORLD_WIDTH
 
 RANDOM_MAP = "Zufällig"
-
-
-def assets_dir() -> Path:
-    """Asset folder, also inside a PyInstaller bundle."""
-    base = getattr(sys, "_MEIPASS", None)
-    root = Path(base) if base else Path(__file__).resolve().parent.parent
-    return root / "assets"
 
 
 def maps_dir() -> Path:
@@ -50,7 +43,7 @@ def load_png_map(path: Path) -> LoadedMap:
     return LoadedMap(terrain, texture, path.stem)
 
 
-def load_map(name: str, seed: int) -> LoadedMap:
+def load_map(name: str, seed: int, water_level: int) -> LoadedMap:
     """Load a named map, falling back to a generated island if the file is unusable."""
     if name != RANDOM_MAP:
         path = maps_dir() / f"{name}.png"
@@ -60,5 +53,5 @@ def load_map(name: str, seed: int) -> LoadedMap:
                 return loaded
         except (pygame.error, OSError, FileNotFoundError) as error:
             print(f"Karte '{name}' konnte nicht geladen werden: {error}")
-    terrain = generate_terrain(WORLD_WIDTH, WORLD_HEIGHT, WATER_LEVEL, seed)
+    terrain = generate_terrain(WORLD_WIDTH, WORLD_HEIGHT, water_level, seed)
     return LoadedMap(terrain, None, RANDOM_MAP)

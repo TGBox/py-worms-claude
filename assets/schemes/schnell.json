@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "name": "Schnell",
+  "turn": {
+    "turn_time": 20,
+    "retreat_time": 2
+  },
+  "worms": {
+    "count": 2,
+    "hp": 80,
+    "fall_damage": true,
+    "fall_damage_factor": 1.0
+  },
+  "terrain": {
+    "water_level": 930
+  },
+  "environment": {
+    "wind_max": 1.0,
+    "gravity": 1.0
+  },
+  "weapons": {
+    "bazooka": {
+      "ammo": -1,
+      "delay": 0,
+      "power": 1.0
+    },
+    "grenade": {
+      "ammo": -1,
+      "delay": 0,
+      "power": 1.0
+    },
+    "shotgun": {
+      "ammo": -1,
+      "delay": 0,
+      "power": 1.0
+    },
+    "airstrike": {
+      "ammo": 1,
+      "delay": 0,
+      "power": 1.0
+    }
+  }
+}
