@@ -73,6 +73,10 @@ class PhysicsWorld:
     def all_bodies(self) -> list[Body]:
         raise NotImplementedError
 
+    def solid_bodies(self) -> list[Body]:
+        """Bodies that may block others (subclasses narrow this down for speed)."""
+        return self.all_bodies()
+
     def rebuild_grid(self) -> None:
         self.grid.rebuild(self.all_bodies())
 
@@ -88,12 +92,23 @@ class PhysicsWorld:
         """Would `body` at (x, y) overlap terrain or another solid body?"""
         if self.terrain.circle_collides(x, y, body.radius):
             return True
+        return self.blocking_body(body, x, y) is not None
+
+    def blocking_body(self, body: Body, x: float, y: float) -> Body | None:
+        """The solid body `body` would overlap at (x, y), if body collision applies."""
         if not body.collides_with_bodies:
-            return False
-        for other in self.all_bodies():
+            return None
+        for other in self.solid_bodies():
             if other is body or not other.alive or not other.collides_with_bodies:
                 continue
-            reach = body.radius + other.radius
-            if (other.x - x) ** 2 + (other.y - y) ** 2 < reach * reach:
-                return True
-        return False
+            reach_sq = (body.radius + other.radius) ** 2
+            new_sq = (other.x - x) ** 2 + (other.y - y) ** 2
+            if new_sq >= reach_sq:
+                continue
+            # Already touching: moves that do not bring the bodies closer are allowed, so
+            # touching bodies can always separate (e.g. jumping away from a neighbour).
+            current_sq = (other.x - body.x) ** 2 + (other.y - body.y) ** 2
+            if current_sq <= reach_sq and new_sq >= current_sq:
+                continue
+            return other
+        return None

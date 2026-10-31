@@ -1,6 +1,6 @@
 [project]
 name = "py-worms-claude"
-version = "0.3.2"
+version = "0.3.3"
 description = "A python adaptation of the classic worms game."
 requires-python = ">=3.11"
 license = { text = "MIT" }

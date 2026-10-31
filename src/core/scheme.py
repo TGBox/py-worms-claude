@@ -34,6 +34,12 @@ class WormOptions:
     hp: int = option(100, "Gesundheit", min=1, max=400, step=10)
     fall_damage: bool = option(True, "Fallschaden")
     fall_damage_factor: float = option(1.0, "Fallschaden-Faktor", min=0.0, max=3.0, step=0.25)
+    collision: str = option(
+        "ueberkriechen",
+        "Wurm-Kollision",
+        choices={"aus": "Aus", "blockieren": "Blockieren", "ueberkriechen": "Überkriechen"},
+    )
+    jump_strength: float = option(1.0, "Sprungkraft", min=0.5, max=2.0, step=0.1)
 
 
 @dataclass
@@ -114,7 +120,10 @@ def _load_group(group_type: type, values: Any) -> Any:
     for f in dataclasses.fields(group_type):
         if f.name in values:
             default = getattr(instance, f.name)
-            setattr(instance, f.name, type(default)(values[f.name]))
+            value = type(default)(values[f.name])
+            choices = f.metadata.get("choices")
+            if choices is None or value in choices:
+                setattr(instance, f.name, value)
     return instance
 
 

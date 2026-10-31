@@ -12,7 +12,15 @@ WIND_ACCELERATION = 140.0  # px / s^2 at wind 1.0, scaled by scheme.environment.
 WORM_RADIUS = 7
 WORM_WALK_SPEED = 55.0  # px / s
 WORM_MAX_CLIMB = 6  # px a worm can step up while walking
-WORM_JUMP_VELOCITY = (130.0, -230.0)
+# Jump start velocities (x relative to facing, y), scaled by scheme.worms.jump_strength
+JUMP_FORWARD = (130.0, -230.0)
+JUMP_HIGH = (25.0, -330.0)
+JUMP_BACKFLIP = (-90.0, -380.0)
+DOUBLE_TAP_WINDOW = 0.25  # seconds to wait for a second jump key press (backflip)
+# Crawling over other worms (collision mode "ueberkriechen")
+CRAWL_CLIMB = 2 * WORM_RADIUS + 2  # px a worm may climb when the obstacle is another worm
+CRAWL_SPEED_FACTOR = 0.5
+SLIDE_SPEED = 90.0  # sideways push when landing on another worm
 WORM_BOUNCE = 0.35
 FALL_DAMAGE_SPEED = 420.0  # landing speed (px/s) above which fall damage applies
 FALL_DAMAGE_PER_SPEED = 0.1  # hp per px/s above the threshold, scaled by the scheme factor

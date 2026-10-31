@@ -8,6 +8,7 @@ from src.core.constants import AIM_SPEED, SIM_DT
 from src.core.match import Match, Phase, TeamConfig
 from src.core.scheme import GameScheme
 from src.core.weapons import AimMode
+from src.jump_input import JumpBuffer
 from src.maps import RANDOM_MAP, load_map
 from src.render import fonts
 from src.render.camera import Camera
@@ -19,8 +20,9 @@ from src.scenes.base import Scene
 from src.settings import COLOR_ACCENT, COLOR_MUTED, COLOR_TEXT, SCREEN_HEIGHT, SCREEN_WIDTH
 
 HELP = (
-    "Pfeile/WASD: Laufen & Zielen  ·  Enter: Springen",
-    "1-4: Waffe  ·  P: Pause  ·  ESC: Menü",
+    "Pfeile/WASD: Laufen & Zielen  ·  1-4: Waffe",
+    "Enter: Sprung  ·  Rücktaste: Hochsprung  ·  2×: Salto",
+    "P: Pause  ·  ESC: Menü",
 )
 FREE_CAMERA_TIME = 2.5
 MAX_STEPS_PER_FRAME = 5
@@ -51,6 +53,7 @@ class MatchScene(Scene):
         self.effects = Effects(seed)
         self.ai = AIController(match)
         self.controls = get_controls()
+        self.jump_buffer = JumpBuffer()
         self.paused = False
         self.mouse_pos = (0, 0)
         self.dragging = False
@@ -77,8 +80,10 @@ class MatchScene(Scene):
                 self.paused = not self.paused
             elif self.paused or not self.human_turn:
                 return
-            elif controls.matches(Action.JUMP, key):
-                match.jump()
+            elif controls.matches(Action.JUMP, key) or controls.matches(Action.HIGH_JUMP, key):
+                kind = "forward" if controls.matches(Action.JUMP, key) else "high"
+                if self.jump_buffer.press(kind) == "backflip":
+                    match.jump("backflip")
             elif controls.matches(Action.FIRE, key):
                 if match.weapon.aim == AimMode.CHARGED:
                     match.start_charge()
@@ -128,11 +133,17 @@ class MatchScene(Scene):
         world = self.match.world
         for event in world.bus.drain():
             self.effects.spawn(event)
+            self.renderer.animator.on_event(event)
         self.effects.update(dt, world.terrain, world.water_level)
         self._update_camera(dt)
 
     def _step(self, dt: float) -> None:
         match = self.match
+        if not (self.human_turn and match.can_move):
+            self.jump_buffer.clear()
+        kind = self.jump_buffer.update(dt)
+        if kind is not None:
+            match.jump(kind)
         if self.human_turn and match.can_move:
             pressed = pygame.key.get_pressed()
             held = self.controls.held

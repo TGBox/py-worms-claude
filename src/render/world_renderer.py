@@ -12,10 +12,9 @@ from src.render import fonts
 from src.render.camera import Camera
 from src.render.effects import Effects
 from src.render.terrain_view import TerrainView
+from src.render.worm_animator import WormAnimator
 from src.settings import COLOR_SKY_BOTTOM, COLOR_SKY_TOP, COLOR_TEXT, COLOR_WATER
 
-WORM_SKIN = (255, 168, 176)
-WORM_SKIN_DARK = (214, 120, 132)
 PARALLAX = 0.35
 
 
@@ -41,6 +40,7 @@ class WorldRenderer:
         self.water = pygame.Surface((self.view_width, 1), pygame.SRCALPHA)
         self.water.fill((*COLOR_WATER, 190))
         self.time = 0.0
+        self.animator = WormAnimator(match)
 
     def _build_mountains(self) -> pygame.Surface:
         world_width = self.match.world.terrain.width
@@ -63,6 +63,7 @@ class WorldRenderer:
     # ----------------------------------------------------------------- draw
     def draw(self, canvas: pygame.Surface, camera: Camera, effects: Effects, dt: float) -> None:
         self.time += dt
+        self.animator.update(dt)
         world = self.match.world
         canvas.blit(self.sky, (0, 0))
         mountain_y = world.water_level - self.mountains.get_height() + 40
@@ -75,7 +76,7 @@ class WorldRenderer:
 
         for worm in world.worms:
             if worm.alive:
-                self._draw_worm(canvas, camera, worm)
+                self.animator.draw(canvas, camera, worm)
         for projectile in world.projectiles:
             sx, sy = camera.to_screen(projectile.x, projectile.y)
             if projectile.weapon_key == "grenade":
@@ -97,16 +98,6 @@ class WorldRenderer:
         for worm in world.worms:
             if worm.alive:
                 self._draw_label(canvas, camera, worm)
-
-    def _draw_worm(self, canvas: pygame.Surface, camera: Camera, worm: Worm) -> None:
-        sx, sy = camera.to_screen(worm.x, worm.y)
-        f = worm.facing
-        pygame.draw.ellipse(canvas, WORM_SKIN_DARK, (sx - 8 - f * 2, sy - 1, 14, 9))
-        pygame.draw.circle(canvas, WORM_SKIN, (sx + f * 2, sy - 3), 6)
-        pygame.draw.circle(canvas, (255, 255, 255), (sx + f * 4, sy - 5), 3)
-        pygame.draw.circle(canvas, (20, 20, 20), (sx + f * 5, sy - 5), 1)
-        team_color = self.match.teams[worm.team_index].color
-        pygame.draw.line(canvas, team_color, (sx - 5, sy + 6), (sx + 5, sy + 6), 2)
 
     def _draw_label(self, canvas: pygame.Surface, camera: Camera, worm: Worm) -> None:
         sx, sy = camera.to_screen(worm.x, worm.y)

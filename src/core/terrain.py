@@ -7,6 +7,7 @@ _CIRCLE_OFFSETS = [
     (math.cos(2 * math.pi * i / _CIRCLE_SAMPLES), math.sin(2 * math.pi * i / _CIRCLE_SAMPLES))
     for i in range(_CIRCLE_SAMPLES)
 ]
+_CIRCLE_POINTS = [(0.0, 0.0), *_CIRCLE_OFFSETS]  # centre first, then the rim
 
 
 class Terrain:
@@ -38,16 +39,26 @@ class Terrain:
         return Terrain(self.width, self.height, bytearray(self.data))
 
     def is_solid(self, x: float, y: float) -> bool:
-        xi = math.floor(x)
-        yi = math.floor(y)
-        if xi < 0 or yi < 0 or xi >= self.width or yi >= self.height:
+        # Hot path: int() truncation equals floor() once negatives are excluded.
+        if x < 0 or y < 0:
+            return False
+        xi = int(x)
+        yi = int(y)
+        if xi >= self.width or yi >= self.height:
             return False
         return self.data[yi * self.width + xi] == 1
 
     def circle_collides(self, cx: float, cy: float, radius: float) -> bool:
-        if self.is_solid(cx, cy):
-            return True
-        return any(self.is_solid(cx + ox * radius, cy + oy * radius) for ox, oy in _CIRCLE_OFFSETS)
+        width, height, data = self.width, self.height, self.data
+        for ox, oy in _CIRCLE_POINTS:
+            x = cx + ox * radius
+            y = cy + oy * radius
+            if x < 0 or y < 0:
+                continue
+            xi, yi = int(x), int(y)
+            if xi < width and yi < height and data[yi * width + xi] == 1:
+                return True
+        return False
 
     def _set_circle(self, cx: float, cy: float, radius: float, value: int) -> None:
         r = int(radius)

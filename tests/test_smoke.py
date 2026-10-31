@@ -167,3 +167,36 @@ def test_ai_versus_ai_match_runs_to_the_end() -> None:
     game.step(DT)
     game.step(DT)
     assert isinstance(game.scene, MainMenuScene)
+
+
+def test_worm_animator_draws_every_pose() -> None:
+    from src.core.entities import WormState
+    from src.core.events import Damage
+    from src.render.worm_animator import POSES
+
+    scene = MatchScene(configs(False, False), RANDOM_MAP, scheme(3), seed=8)
+    game = Game(scene)
+    match = scene.match
+    animator = scene.renderer.animator
+    worms = match.world.worms
+    states = [
+        WormState.WALK,
+        WormState.JUMP,
+        WormState.HIGH_JUMP,
+        WormState.BACKFLIP,
+        WormState.FALL,
+    ]
+    others = [w for w in worms if w is not match.active_worm]
+    for worm, state in zip(others, states):
+        worm.state = state
+    animator.on_event(Damage(others[-1], 10, 0, 0))
+    game.draw()
+    for step in range(30):  # animate a while (crawl wave, blinking, backflip rotation)
+        animator.update(1 / 30)
+        others[0].walk_distance += 1.5
+        game.draw()
+    match.phase = Phase.GAME_OVER
+    match.winner = match.teams[0]
+    game.draw()
+    assert set(POSES) <= animator.drawn_poses | {"idle"}
+    assert {"walk", "backflip", "aim", "hurt", "victory"} <= animator.drawn_poses
