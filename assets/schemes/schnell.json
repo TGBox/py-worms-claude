@@ -2,14 +2,16 @@
   "version": 1,
   "name": "Schnell",
   "turn": {
-    "turn_time": 20,
-    "retreat_time": 2
+    "turn_time": 20.0,
+    "retreat_time": 2.0
   },
   "worms": {
     "count": 2,
     "hp": 80,
     "fall_damage": true,
-    "fall_damage_factor": 1.0
+    "fall_damage_factor": 1.0,
+    "collision": "ueberkriechen",
+    "jump_strength": 1.0
   },
   "terrain": {
     "water_level": 930

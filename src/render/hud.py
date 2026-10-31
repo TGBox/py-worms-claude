@@ -7,6 +7,7 @@ import pygame
 from src.core.match import Match, Phase
 from src.core.weapons import AimMode, all_weapons
 from src.render import fonts
+from src.render.weapon_icons import draw_icon
 from src.settings import COLOR_ACCENT, COLOR_MUTED, COLOR_PRIMARY, COLOR_TEXT
 
 PANEL = (14, 17, 26, 200)
@@ -75,7 +76,7 @@ class Hud:
     def _draw_weapons(self, canvas: pygame.Surface) -> None:
         match = self.match
         weapons = all_weapons()
-        rect = pygame.Rect(10, 0, 230, 18 + 26 * len(weapons))
+        rect = pygame.Rect(10, 0, 250, 18 + 26 * len(weapons))
         rect.bottom = self.height - 10
         _panel(canvas, rect)
         team = match.active_team
@@ -89,8 +90,9 @@ class Hud:
                     canvas, (56, 70, 100), (rect.left + 4, y - 3, rect.width - 8, 24), 0, 5
                 )
             color = COLOR_MUTED if not available else (COLOR_TEXT if selected else (200, 205, 215))
+            draw_icon(canvas, weapon.icon or weapon.key, (rect.left + 20, y + 8), 16)
             label = fonts.text(f"{i + 1}  {weapon.name}", 22, color)
-            canvas.blit(label, (rect.left + 12, y))
+            canvas.blit(label, (rect.left + 34, y))
             delay = match.scheme.weapon(weapon.key).delay
             if ammo != 0 and match.round_number <= delay:
                 info = f"ab R{delay + 1}"

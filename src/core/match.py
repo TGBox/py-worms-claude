@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Any
 
 from src.core.constants import AIM_MAX, AIM_MIN, CHARGE_TIME, DEFAULT_WORM_NAMES, SETTLE_MIN_TIME
-from src.core.entities import Worm
+from src.core.entities import JumpKind, Worm
 from src.core.events import GameOver, TurnStarted, WeaponFired
 from src.core.rng import RngStreams
 from src.core.scheme import GameScheme
@@ -191,10 +191,11 @@ class Match:
             self._record("face", direction)
             self.active_worm.facing = direction
 
-    def jump(self) -> None:
+    def jump(self, kind: str = "forward") -> None:
+        """kind: "forward", "high" or "backflip" (strings keep the command log serializable)."""
         if self.can_move and not self.charging:
-            self._record("jump")
-            self.world.jump(self.active_worm)
+            self._record("jump", kind)
+            self.world.jump(self.active_worm, JumpKind(kind))
 
     def aim(self, delta: float) -> None:
         if self.can_act:

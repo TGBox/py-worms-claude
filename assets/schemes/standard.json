@@ -9,7 +9,9 @@
     "count": 3,
     "hp": 100,
     "fall_damage": true,
-    "fall_damage_factor": 1.0
+    "fall_damage_factor": 1.0,
+    "collision": "ueberkriechen",
+    "jump_strength": 1.0
   },
   "terrain": {
     "water_level": 930

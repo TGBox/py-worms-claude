@@ -326,6 +326,7 @@ def test_spatial_queries_and_body_collision() -> None:
     world.rebuild_grid()
     found = world.bodies_in_radius(100, 292, 10)
     assert a in found and b in found and far not in found
+    a.collides_with_bodies = b.collides_with_bodies = False
     assert not world.body_collides(a, a.x + 3, a.y)  # body collision is opt-in
     a.collides_with_bodies = b.collides_with_bodies = True
     assert world.body_collides(a, a.x + 3, a.y)

@@ -439,6 +439,31 @@ Phase 1–8 ──► Phase 9 Missionssystem ► Tutorials ► Kampagne ──�
 - Animation reagiert auf Zustände (Smoke-Test prüft, dass jeder Zustand einmal gezeichnet wurde).
 - Manuell: Laufen sieht nach Kriechen aus, nicht nach Gleiten.
 
+**Status: umgesetzt (2026-10-31).** Entscheidungslog:
+
+- **Belegung:** Enter = Vorwärtssprung, Rücktaste = Hochsprung, zweimal innerhalb 0,25 s =
+  Rückwärtssalto (`src/jump_input.py`). Ein einzelner Sprung startet deshalb erst nach diesem
+  Fenster, wie im Klassiker.
+- **Schema:** statt einzelner `jump_*`-Vektoren ein Faktor `worms.jump_strength`. Die drei
+  Sprungprofile stehen in `constants.py`. Neu ist auch `worms.collision` (Standard: `ueberkriechen`).
+- **Stufenhöhe:** Eine Stufe gilt nur durch Terrain als Treppe. Ein anderer Wurm ist im Modus
+  `blockieren` immer eine Wand und wird im Modus `ueberkriechen` mit halber Geschwindigkeit bis zu
+  Wurmhöhe + 2 px überklettert. Voraussetzung ist, dass der Boden dahinter begehbar ist.
+- **Berührende Körper:** Bewegungen, die den Abstand nicht verringern, sind immer erlaubt, damit
+  sich verhakte Würmer trennen können. Seitlicher Kontakt in der Luft gleitet tangential statt
+  abzuprallen. Wer auf einem Wurm landet, rutscht ab (höchstens 3 Versuche, dann bleibt er stehen).
+- **Zustände:** Der Kern kennt Bewegungszustände (IDLE, WALK, JUMP, HIGH_JUMP, BACKFLIP, FALL,
+  DROWNED, DEAD). Zielen, Treffer und Sieg sind reine Posen, die der Animator aus dem Match ableitet.
+- **„Gefahr nahe“ als Abfrage statt Ereignis:** `World.danger_near()` wird pro Frame vom Animator
+  gefragt. Ein Ereignis hätte bei jeder Geschossbewegung gefeuert.
+- **KI-Bewegung:** Die KI erkundet erreichbare Positionen mit der echten Bewegungs-Physik
+  (`World.look_ahead`, ohne Seiteneffekte). Mit Anlauf springt sie auch über Hindernisse. Jede
+  Position bewertet sie mit einer groben Schusssuche und läuft nur bei klarem Gewinn los. Abschaltbar
+  über `AIController(use_movement=..., use_jumps=...)`, die Schwierigkeitsstufen folgen in Phase 5.
+- **Leistung:** Wurm-Kollision kostet Zeit. Die Engpässe `is_solid`, `circle_collides` und
+  `step_projectile` (Broad-Phase für Treffer) wurden optimiert, das Budget hält (≈ 1,35–1,6 bei
+  Grenze 1,68).
+
 ---
 
 ### Phase 2 – Waffen-Welle 1 (v0.5) · M · *W5 Teil 1*

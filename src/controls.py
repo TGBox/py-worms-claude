@@ -14,6 +14,7 @@ class Action(Enum):
     AIM_UP = "aim_up"
     AIM_DOWN = "aim_down"
     JUMP = "jump"
+    HIGH_JUMP = "high_jump"
     FIRE = "fire"
     WEAPON_1 = "weapon_1"
     WEAPON_2 = "weapon_2"
@@ -36,6 +37,7 @@ DEFAULT_BINDINGS: dict[Action, tuple[str, ...]] = {
     Action.AIM_UP: ("up", "w"),
     Action.AIM_DOWN: ("down", "s"),
     Action.JUMP: ("return", "enter"),
+    Action.HIGH_JUMP: ("backspace",),
     Action.FIRE: ("space",),
     Action.WEAPON_1: ("1",),
     Action.WEAPON_2: ("2",),

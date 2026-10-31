@@ -103,6 +103,8 @@ class Effects:
                 TimedEffect("tracer", event.x, event.y, 0.25, 0.25, x2=event.x2, y2=event.y2)
             )
         elif isinstance(event, (Splash, WormDrowned)):
+            if isinstance(event, WormDrowned):
+                self.timed.append(TimedEffect("sink", event.x, event.y, 1.6, 1.6))
             for _ in range(24):
                 self.particles.append(
                     Particle(
@@ -162,6 +164,13 @@ class Effects:
                 end = camera.to_screen(effect.x2, effect.y2)
                 color = (255, int(200 + 55 * t), 120)
                 pygame.draw.line(canvas, color, (sx, sy), end, max(1, int(3 * t)))
+            elif effect.kind == "sink":  # a drowning worm sinks and fades out
+                sink = pygame.Surface((24, 30), pygame.SRCALPHA)
+                alpha = int(200 * t)
+                for i, (ox, oy, r) in enumerate(((12, 22, 4), (12, 16, 5), (12, 9, 6))):
+                    wobble = math.sin(effect.life * 8 + i) * 2
+                    pygame.draw.circle(sink, (255, 168, 176, alpha), (ox + wobble, oy), r)
+                canvas.blit(sink, (sx - 12, sy - 15 + int((1 - t) * 40)))
             elif effect.kind == "number":
                 label = fonts.outlined(f"-{effect.value}", 24, COLOR_TEXT)
                 canvas.blit(label, label.get_rect(center=(sx, sy)))
