@@ -1,78 +1,107 @@
+"""Entry point: window management, letterboxed rendering and the scene loop."""
+
 import sys
 
 import pygame
 
-from src.settings import (
-    COLOR_BACKGROUND,
-    COLOR_PRIMARY,
-    COLOR_TEXT,
-    FPS,
-    SCREEN_HEIGHT,
-    SCREEN_WIDTH,
-    TITLE,
-)
+from src.scenes.base import Scene
+from src.settings import COLOR_BACKGROUND, FPS, SCREEN_HEIGHT, SCREEN_WIDTH, TITLE
+
+MOUSE_EVENTS = (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP, pygame.MOUSEMOTION)
+
+
+def letterbox(window_size: tuple[int, int], canvas_size: tuple[int, int]) -> pygame.Rect:
+    """Largest rect with the canvas aspect ratio, centred in the window."""
+    window_w, window_h = window_size
+    canvas_w, canvas_h = canvas_size
+    scale = min(window_w / canvas_w, window_h / canvas_h)
+    width, height = max(1, round(canvas_w * scale)), max(1, round(canvas_h * scale))
+    return pygame.Rect((window_w - width) // 2, (window_h - height) // 2, width, height)
 
 
 class Game:
-    def __init__(self) -> None:
+    def __init__(self, scene: Scene | None = None) -> None:
         pygame.init()
         pygame.display.set_caption(TITLE)
-        self.screen_width = SCREEN_WIDTH
-        self.screen_height = SCREEN_HEIGHT
+        self.window_size = (SCREEN_WIDTH, SCREEN_HEIGHT)
         self.is_fullscreen = False
-        self.screen = pygame.display.set_mode((self.screen_width, self.screen_height), pygame.RESIZABLE)
+        self.screen = pygame.display.set_mode(self.window_size, pygame.RESIZABLE)
+        self.canvas = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT)).convert()
         self.clock = pygame.time.Clock()
         self.running = True
-        self.font = pygame.font.SysFont(None, 36)
-        self.info_font = pygame.font.SysFont(None, 24)
+        if scene is None:
+            from src.scenes.menu import MenuScene
+
+            scene = MenuScene()
+        self.scene = scene
 
     def toggle_fullscreen(self) -> None:
         self.is_fullscreen = not self.is_fullscreen
         if self.is_fullscreen:
             self.screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
         else:
-            self.screen = pygame.display.set_mode((self.screen_width, self.screen_height), pygame.RESIZABLE)
+            self.screen = pygame.display.set_mode(self.window_size, pygame.RESIZABLE)
+
+    def to_canvas(self, pos: tuple[int, int]) -> tuple[int, int]:
+        rect = letterbox(self.screen.get_size(), self.canvas.get_size())
+        x = (pos[0] - rect.x) * self.canvas.get_width() / rect.width
+        y = (pos[1] - rect.y) * self.canvas.get_height() / rect.height
+        return (int(x), int(y))
 
     def handle_events(self) -> None:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
-            elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
-                    self.running = False
-                elif event.key == pygame.K_F11:
-                    self.toggle_fullscreen()
+                continue
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_F11:
+                self.toggle_fullscreen()
+                continue
+            if event.type == pygame.VIDEORESIZE and not self.is_fullscreen:
+                self.window_size = (max(320, event.w), max(180, event.h))
+            if event.type in MOUSE_EVENTS:
+                attributes = dict(event.dict)
+                attributes["pos"] = self.to_canvas(event.pos)
+                if "rel" in attributes:
+                    rect = letterbox(self.screen.get_size(), self.canvas.get_size())
+                    factor = self.canvas.get_width() / rect.width
+                    attributes["rel"] = (event.rel[0] * factor, event.rel[1] * factor)
+                event = pygame.event.Event(event.type, attributes)
+            self.scene.handle_event(event)
 
     def update(self, dt: float) -> None:
-        pass
+        self.scene.update(dt, self.to_canvas(pygame.mouse.get_pos()))
+        if self.scene.quit_requested:
+            self.running = False
+        elif self.scene.next_scene is not None:
+            self.scene = self.scene.next_scene
 
     def draw(self) -> None:
+        self.scene.draw(self.canvas)
         self.screen.fill(COLOR_BACKGROUND)
-
-        title_surf = self.font.render("Willkommen bei py-worms-claude!", True, COLOR_PRIMARY)
-        title_rect = title_surf.get_rect(center=(self.screen.get_width() // 2, self.screen.get_height() // 2 - 40))
-        self.screen.blit(title_surf, title_rect)
-
-        hint_surf = self.info_font.render("F11: Vollbild umschalten | ESC: Beenden", True, COLOR_TEXT)
-        hint_rect = hint_surf.get_rect(center=(self.screen.get_width() // 2, self.screen.get_height() // 2 + 20))
-        self.screen.blit(hint_surf, hint_rect)
-
+        rect = letterbox(self.screen.get_size(), self.canvas.get_size())
+        if rect.size == self.canvas.get_size():
+            self.screen.blit(self.canvas, rect)
+        else:
+            self.screen.blit(pygame.transform.smoothscale(self.canvas, rect.size), rect)
         pygame.display.flip()
+
+    def step(self, dt: float) -> None:
+        """One frame of the game loop (also used by the headless smoke test)."""
+        self.handle_events()
+        self.update(dt)
+        self.draw()
 
     def run(self) -> None:
         while self.running:
             dt = self.clock.tick(FPS) / 1000.0
-            self.handle_events()
-            self.update(dt)
-            self.draw()
-
+            self.step(dt)
         pygame.quit()
         sys.exit(0)
 
 
 def main() -> None:
-    game = Game()
-    game.run()
+    Game().run()
+
 
 if __name__ == "__main__":
     main()
