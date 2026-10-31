@@ -1,48 +1,39 @@
-"""Plain data objects for worms and projectiles."""
+"""Worms and projectiles: concrete bodies of the simulation."""
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
-from src.settings import WORM_MAX_HP
+from src.core.constants import WORM_RADIUS
+from src.core.physics import Body
 
 
 @dataclass(eq=False)
-class Worm:
+class Worm(Body):
     name: str
     team_index: int
-    x: float
-    y: float
-    hp: int = WORM_MAX_HP
-    vx: float = 0.0
-    vy: float = 0.0
+    hp: int = 100
     facing: int = 1
     aim: float = 0.5  # radians above the horizon, relative to facing
     grounded: bool = False
-    alive: bool = True
     walk_progress: float = 0.0
     damage_taken: int = 0  # accumulated since the counter was last reset
+    radius: float = field(default=WORM_RADIUS, kw_only=True)
 
     def aim_vector(self) -> tuple[float, float]:
         return (math.cos(self.aim) * self.facing, -math.sin(self.aim))
 
-    @property
-    def speed(self) -> float:
-        return math.hypot(self.vx, self.vy)
-
 
 @dataclass(eq=False)
-class Projectile:
+class Projectile(Body):
     weapon_key: str
-    x: float
-    y: float
-    vx: float
-    vy: float
-    explosion_radius: float
-    damage: int
+    explosion_radius: float = 0.0
+    damage: int = 0
     wind_factor: float = 0.0
     fuse: float | None = None  # seconds until detonation, None = impact fuse
     bounce: float | None = None  # restitution on terrain hits, None = explode on impact
     owner: Worm | None = None
     age: float = 0.0
-    resting: bool = False
-    alive: bool = True
+
+    @property
+    def resting(self) -> bool:
+        return self.asleep

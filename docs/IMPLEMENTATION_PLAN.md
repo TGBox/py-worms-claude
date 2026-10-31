@@ -177,16 +177,18 @@ class PhysicsWorld:
 ```python
 @dataclass(frozen=True)
 class WeaponDef:
-    key: str                      # "bazooka"
-    name: str                     # "Bazooka" (UI, deutsch)
-    category: Category            # ARTILLERIE, GEWEHR, NAHKAMPF, GELEGT, LUFT, TIER, VERRÜCKT, WERKZEUG
-    aim: AimMode                  # CHARGED, ANGLE_ONLY, TARGET_POINT, NONE
-    behavior: str                 # Baustein- oder Sonderklassen-Key im Register
-    params: Mapping[str, Any]     # z. B. {"radius": 40, "damage": 50, "wind": 1.0, "fuse": 3}
+    key: str  # "bazooka"
+    name: str  # "Bazooka" (UI, deutsch)
+    category: Category  # ARTILLERIE, GEWEHR, NAHKAMPF, GELEGT, LUFT, TIER, VERRÜCKT, WERKZEUG
+    aim: AimMode  # CHARGED, ANGLE_ONLY, TARGET_POINT, NONE
+    behavior: str  # Baustein- oder Sonderklassen-Key im Register
+    params: Mapping[str, Any]  # z. B. {"radius": 40, "damage": 50, "wind": 1.0, "fuse": 3}
     shots_per_turn: int = 1
-    ends_turn: bool = True        # Werkzeuge wie Fallschirm/Seil: False
-    ai: AIHint | None = None      # wie die KI die Waffe simulieren/bewerten kann; None = KI nutzt sie nicht
-    icon: str = ""                # Schlüssel für prozedurales Icon
+    ends_turn: bool = True  # Werkzeuge wie Fallschirm/Seil: False
+    ai: AIHint | None = (
+        None  # wie die KI die Waffe simulieren/bewerten kann; None = KI nutzt sie nicht
+    )
+    icon: str = ""  # Schlüssel für prozedurales Icon
 ```
 
 Ein Baustein implementiert `fire(ctx: FireContext) -> list[Body]` und bei Bedarf `update(body, dt)`.
@@ -394,6 +396,29 @@ Phase 1–8 ──► Phase 9 Missionssystem ► Tutorials ► Kampagne ──�
 - `grep pygame src/core` leer. Kein Zugriff aus `src/core` auf Spielwerte in `settings.py`.
 - Neue Waffe als reiner Katalogeintrag möglich (Test: Bazooka-Klon mit Radius 60 ohne Codeänderung außerhalb des Katalogs).
 - Determinismus- und Leistungsbudget-Test vorhanden und grün.
+
+**Status: umgesetzt (2026-10-31).** Entscheidungslog:
+
+- **Verhaltensänderung, begründet:** Wind, Startpositionen und Namen ziehen jetzt aus eigenen
+  Zufallsströmen (`rng.py`). Gleicher Seed ergibt deshalb andere Partien als vor dem Umbau. Physik,
+  Waffenwerte und Regeln sind unverändert, alle 35 Alt-Tests laufen weiter.
+- **KI-Denkbudget in Schritten statt Sekunden:** Pro Frame werden 40 Kandidaten geprüft
+  (`AIController.think_steps`). Ein Zeitbudget hängt von der Rechnergeschwindigkeit ab und hätte
+  die Determinismus-Tests gebrochen.
+- **Feste Simulationsschritte:** Die Spielszene simuliert mit 1/60 s (Akkumulator, maximal 5
+  Schritte pro Frame). Eingabeprotokoll und Replays (`match.replay`) setzen das voraus.
+- **Schema enthält nur, was schon wirkt:** Zugzeit, Rückzug, Wurmanzahl, HP, Fallschaden,
+  Wasserspiegel, Wind, Schwerkraft sowie Munition, Verzögerung und Stärke pro Waffe. Weitere Gruppen
+  aus B.2 kommen mit den Phasen, die sie nutzen. Alte Dateien bleiben über Defaults ladbar.
+- **0.8 `pygame_gui` verschoben:** In der Build-Umgebung ist PyPI nicht erreichbar, die Bibliothek
+  wäre also ungetestet eingebunden worden. Umgesetzt ist das Aktions-Mapping (`src/controls.py`,
+  Tasten in `settings.json`). Der Spike aus ADR-0004 läuft vor Phase 4, wo die ersten Formulare
+  entstehen.
+- **Körper-Kollision ist vorbereitet, aber aus:** `Body.collides_with_bodies` wirkt bereits in
+  `PhysicsWorld.body_collides`. Die Schema-Option und das Überkriechen kommen in Phase 1.
+- **Leistungsbudget:** Szenario/Kalibrierung ≈ 1,4 (CPython 3.13), Grenze 1,4 × 1,2. Auf einer
+  anderen Python-Version kann der Wert abweichen. Dann wird `BASELINE_RATIO` dort einmalig neu
+  gemessen.
 
 ---
 

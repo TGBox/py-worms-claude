@@ -1,12 +1,13 @@
-"""In-game scene: input handling, AI, simulation, camera and drawing."""
-
-import random
+"""In-game scene: input handling, AI, fixed-step simulation, camera and drawing."""
 
 import pygame
 
+from src.controls import WEAPON_ACTIONS, Action, get_controls
 from src.core.ai import AIController
+from src.core.constants import AIM_SPEED, SIM_DT
 from src.core.match import Match, Phase, TeamConfig
-from src.core.weapons import FireMode
+from src.core.scheme import GameScheme
+from src.core.weapons import AimMode
 from src.maps import RANDOM_MAP, load_map
 from src.render import fonts
 from src.render.camera import Camera
@@ -15,35 +16,30 @@ from src.render.hud import Hud
 from src.render.terrain_view import TerrainView
 from src.render.world_renderer import WorldRenderer
 from src.scenes.base import Scene
-from src.settings import (
-    AIM_SPEED,
-    COLOR_ACCENT,
-    COLOR_MUTED,
-    COLOR_TEXT,
-    SCREEN_HEIGHT,
-    SCREEN_WIDTH,
-    WATER_LEVEL,
-)
+from src.settings import COLOR_ACCENT, COLOR_MUTED, COLOR_TEXT, SCREEN_HEIGHT, SCREEN_WIDTH
 
 HELP = (
     "Pfeile/WASD: Laufen & Zielen  ·  Enter: Springen",
     "1-4: Waffe  ·  P: Pause  ·  ESC: Menü",
 )
 FREE_CAMERA_TIME = 2.5
+MAX_STEPS_PER_FRAME = 5
 
 
 class MatchScene(Scene):
     def __init__(
-        self, configs: list[TeamConfig], map_name: str, worms_per_team: int, seed: int
+        self, configs: list[TeamConfig], map_name: str, scheme: GameScheme, seed: int
     ) -> None:
         super().__init__()
-        loaded = load_map(map_name, seed)
+        water_level = scheme.terrain.water_level
+        loaded = load_map(map_name, seed, water_level)
         try:
-            match = Match.create(configs, loaded.terrain, seed, worms_per_team, WATER_LEVEL)
+            match = Match.create(configs, loaded.terrain, seed, scheme)
         except RuntimeError:  # map too small for all worms: use a generated island instead
-            loaded = load_map(RANDOM_MAP, seed)
-            match = Match.create(configs, loaded.terrain, seed, worms_per_team, WATER_LEVEL)
+            loaded = load_map(RANDOM_MAP, seed, water_level)
+            match = Match.create(configs, loaded.terrain, seed, scheme)
         self.match = match
+        self.seed = seed
         self.view_size = (SCREEN_WIDTH, SCREEN_HEIGHT)
         terrain = match.world.terrain
         self.camera = Camera(SCREEN_WIDTH, SCREEN_HEIGHT, terrain.width, terrain.height)
@@ -53,12 +49,14 @@ class MatchScene(Scene):
         )
         self.hud = Hud(match, self.view_size)
         self.effects = Effects(seed)
-        self.ai = AIController(match, random.Random(seed))
+        self.ai = AIController(match)
+        self.controls = get_controls()
         self.paused = False
         self.mouse_pos = (0, 0)
         self.dragging = False
         self.free_camera = 0.0
         self.last_dt = 0.0
+        self._accumulator = 0.0
 
     @property
     def human_turn(self) -> bool:
@@ -67,26 +65,30 @@ class MatchScene(Scene):
     # -------------------------------------------------------------- events
     def handle_event(self, event: pygame.event.Event) -> None:
         match = self.match
+        controls = self.controls
         if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_ESCAPE:
+            key = event.key
+            if controls.matches(Action.BACK, key):
                 self._back_to_menu()
-            elif event.key == pygame.K_p and match.phase != Phase.GAME_OVER:
-                self.paused = not self.paused
             elif match.phase == Phase.GAME_OVER:
-                if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
+                if controls.matches(Action.CONFIRM, key):
                     self._back_to_menu()
+            elif controls.matches(Action.PAUSE, key):
+                self.paused = not self.paused
             elif self.paused or not self.human_turn:
                 return
-            elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+            elif controls.matches(Action.JUMP, key):
                 match.jump()
-            elif pygame.K_1 <= event.key <= pygame.K_4:
-                match.select_weapon(event.key - pygame.K_1)
-            elif event.key == pygame.K_SPACE:
-                if match.weapon.mode == FireMode.CHARGED:
+            elif controls.matches(Action.FIRE, key):
+                if match.weapon.aim == AimMode.CHARGED:
                     match.start_charge()
-                elif match.weapon.mode == FireMode.DIRECT:
+                elif match.weapon.aim in (AimMode.ANGLE, AimMode.NONE):
                     match.fire_direct()
-        elif event.type == pygame.KEYUP and event.key == pygame.K_SPACE:
+            else:
+                for index, action in enumerate(WEAPON_ACTIONS):
+                    if controls.matches(action, key):
+                        match.select_weapon(index)
+        elif event.type == pygame.KEYUP and controls.matches(Action.FIRE, event.key):
             if self.human_turn and not self.paused:
                 match.release_charge()
         elif event.type == pygame.MOUSEBUTTONDOWN:
@@ -96,7 +98,7 @@ class MatchScene(Scene):
                 event.button == 1
                 and self.human_turn
                 and not self.paused
-                and match.weapon.mode == FireMode.TARGETED
+                and match.weapon.aim == AimMode.TARGET_POINT
             ):
                 world_x, _ = self.camera.to_world(*event.pos)
                 match.fire_at(world_x)
@@ -107,9 +109,9 @@ class MatchScene(Scene):
             self.free_camera = FREE_CAMERA_TIME
 
     def _back_to_menu(self) -> None:
-        from src.scenes.menu import MenuScene  # avoid an import cycle
+        from src.scenes.menu import MainMenuScene  # avoid an import cycle
 
-        self.next_scene = MenuScene()
+        self.next_scene = MainMenuScene()
 
     # -------------------------------------------------------------- update
     def update(self, dt: float, mouse_pos: tuple[int, int]) -> None:
@@ -117,26 +119,33 @@ class MatchScene(Scene):
         self.last_dt = 0.0 if self.paused else dt
         if self.paused:
             return
+        # Fixed simulation step: identical results for any frame rate (replays, determinism).
+        self._accumulator = min(self._accumulator + dt, SIM_DT * MAX_STEPS_PER_FRAME)
+        while self._accumulator >= SIM_DT:
+            self._accumulator -= SIM_DT
+            self._step(SIM_DT)
+
+        world = self.match.world
+        for event in world.bus.drain():
+            self.effects.spawn(event)
+        self.effects.update(dt, world.terrain, world.water_level)
+        self._update_camera(dt)
+
+    def _step(self, dt: float) -> None:
         match = self.match
         if self.human_turn and match.can_move:
-            keys = pygame.key.get_pressed()
-            if keys[pygame.K_LEFT] or keys[pygame.K_a]:
+            pressed = pygame.key.get_pressed()
+            held = self.controls.held
+            if held(Action.MOVE_LEFT, pressed):
                 match.move(-1, dt)
-            elif keys[pygame.K_RIGHT] or keys[pygame.K_d]:
+            elif held(Action.MOVE_RIGHT, pressed):
                 match.move(1, dt)
-            if keys[pygame.K_UP] or keys[pygame.K_w]:
+            if held(Action.AIM_UP, pressed):
                 match.aim(AIM_SPEED * dt)
-            elif keys[pygame.K_DOWN] or keys[pygame.K_s]:
+            elif held(Action.AIM_DOWN, pressed):
                 match.aim(-AIM_SPEED * dt)
         self.ai.update(dt)
         match.update(dt)
-
-        world = match.world
-        for event in world.events:
-            self.effects.spawn(event)
-        world.events.clear()
-        self.effects.update(dt, world.terrain, world.water_level)
-        self._update_camera(dt)
 
     def _update_camera(self, dt: float) -> None:
         match = self.match
@@ -157,7 +166,7 @@ class MatchScene(Scene):
         if (
             self.human_turn
             and match.phase == Phase.AIMING
-            and match.weapon.mode == FireMode.TARGETED
+            and match.weapon.aim == AimMode.TARGET_POINT
         ):
             mx, my = self.mouse_pos
             pygame.draw.line(canvas, COLOR_ACCENT, (mx, 0), (mx, my - 12), 1)

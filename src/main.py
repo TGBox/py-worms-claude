@@ -4,6 +4,7 @@ import sys
 
 import pygame
 
+from src.controls import Action, get_controls
 from src.scenes.base import Scene
 from src.settings import COLOR_BACKGROUND, FPS, SCREEN_HEIGHT, SCREEN_WIDTH, TITLE
 
@@ -30,9 +31,9 @@ class Game:
         self.clock = pygame.time.Clock()
         self.running = True
         if scene is None:
-            from src.scenes.menu import MenuScene
+            from src.scenes.menu import MainMenuScene
 
-            scene = MenuScene()
+            scene = MainMenuScene()
         self.scene = scene
 
     def toggle_fullscreen(self) -> None:
@@ -53,7 +54,9 @@ class Game:
             if event.type == pygame.QUIT:
                 self.running = False
                 continue
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_F11:
+            if event.type == pygame.KEYDOWN and get_controls().matches(
+                Action.FULLSCREEN, event.key
+            ):
                 self.toggle_fullscreen()
                 continue
             if event.type == pygame.VIDEORESIZE and not self.is_fullscreen:

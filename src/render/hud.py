@@ -5,9 +5,9 @@ import math
 import pygame
 
 from src.core.match import Match, Phase
-from src.core.weapons import WEAPONS, FireMode
+from src.core.weapons import AimMode, all_weapons
 from src.render import fonts
-from src.settings import COLOR_ACCENT, COLOR_MUTED, COLOR_PRIMARY, COLOR_TEXT, WORM_MAX_HP
+from src.settings import COLOR_ACCENT, COLOR_MUTED, COLOR_PRIMARY, COLOR_TEXT
 
 PANEL = (14, 17, 26, 200)
 
@@ -60,7 +60,7 @@ class Hud:
         rect.height = 12 + 22 * len(teams)
         rect.bottom = self.height - 10
         _panel(canvas, rect)
-        full = max(1, max(len(t.worms) for t in teams) * WORM_MAX_HP)
+        full = max(1, max(len(t.worms) for t in teams) * self.match.scheme.worms.hp)
         for i, team in enumerate(teams):
             y = rect.top + 8 + i * 22
             name = fonts.text(team.name, 20, team.color if team.alive else COLOR_MUTED)
@@ -74,29 +74,37 @@ class Hud:
 
     def _draw_weapons(self, canvas: pygame.Surface) -> None:
         match = self.match
-        rect = pygame.Rect(10, 0, 210, 18 + 26 * len(WEAPONS))
+        weapons = all_weapons()
+        rect = pygame.Rect(10, 0, 230, 18 + 26 * len(weapons))
         rect.bottom = self.height - 10
         _panel(canvas, rect)
         team = match.active_team
-        for i, weapon in enumerate(WEAPONS):
+        for i, weapon in enumerate(weapons):
             y = rect.top + 10 + i * 26
-            ammo = team.ammo.get(weapon.key, -1)
-            selected = i == team.weapon_index
+            ammo = match.ammo(weapon)
+            available = match.is_available(weapon)
+            selected = weapon.key == team.weapon_key
             if selected:
                 pygame.draw.rect(
                     canvas, (56, 70, 100), (rect.left + 4, y - 3, rect.width - 8, 24), 0, 5
                 )
-            color = COLOR_MUTED if ammo == 0 else (COLOR_TEXT if selected else (200, 205, 215))
+            color = COLOR_MUTED if not available else (COLOR_TEXT if selected else (200, 205, 215))
             label = fonts.text(f"{i + 1}  {weapon.name}", 22, color)
             canvas.blit(label, (rect.left + 12, y))
-            count = fonts.text("" if ammo < 0 else f"{ammo}x", 20, COLOR_MUTED)
+            delay = match.scheme.weapon(weapon.key).delay
+            if ammo != 0 and match.round_number <= delay:
+                info = f"ab R{delay + 1}"
+            else:
+                info = "" if ammo < 0 else f"{ammo}x"
+            count = fonts.text(info, 20, COLOR_MUTED)
             canvas.blit(count, count.get_rect(topright=(rect.right - 12, y + 2)))
         if match.phase == Phase.AIMING and not team.is_ai:
             hint = {
-                FireMode.CHARGED: "Leertaste halten zum Laden",
-                FireMode.DIRECT: "Leertaste: Schießen",
-                FireMode.TARGETED: "Linksklick: Ziel wählen",
-            }[match.weapon.mode]
+                AimMode.CHARGED: "Leertaste halten zum Laden",
+                AimMode.ANGLE: "Leertaste: Schießen",
+                AimMode.TARGET_POINT: "Linksklick: Ziel wählen",
+                AimMode.NONE: "Leertaste: Benutzen",
+            }[match.weapon.aim]
             label = fonts.outlined(hint, 20, COLOR_TEXT)
             canvas.blit(label, (rect.left + 4, rect.top - 24))
 
