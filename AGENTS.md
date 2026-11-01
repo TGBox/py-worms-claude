@@ -7,7 +7,7 @@ Dieses Projekt ('py-worms-claude') enthält projektspezifische Richtlinien und S
 - **Allgemeine Architektur & Code-Standards**: Grundregeln: Saubere Modularisierung, lesbarer Code, englische Variablennamen/Kommentare, deutsche Nutzeroberflächentexte.
 - **Python & uv Best Practices**: Moderne Python-Standards: Paketmanagement mit uv, Typ-Annotationen, Ruff Linter/Formatter und Pytest.
 - **Game Development & 2D-Engine Richtlinien**: Best Practices für 2D-Spiele: Saubere Game-Loop (Event/Update/Draw), Delta-Time-Bewegung, Fenster- und Vollbildmodus, Entkopplung von Spiellogik und Rendering.
-- **Kern-Architektur (py-worms-claude)**: `src/core` ohne pygame, alle Spielwerte aus `GameScheme`, Simulationszufall nur über `RngStreams`, neue Waffen als Katalogeintrag. Plan: `docs/IMPLEMENTATION_PLAN.md`, Entscheidungen: `docs/adr/`.
+- **Kern-Architektur (py-worms-claude)**: `src/core` ohne pygame, alle Spielwerte aus `GameScheme`, Simulationszufall nur über `RngStreams`, neue Waffen als Katalogeintrag, Physikschleifen bitgleich in Python und Rust (`native/`). Plan: `docs/IMPLEMENTATION_PLAN.md`, Entscheidungen: `docs/adr/`.
 
 ## Aktive Skills (`.agents/skills/`)
 

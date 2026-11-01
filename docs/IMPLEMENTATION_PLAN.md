@@ -466,6 +466,57 @@ Phase 1–8 ──► Phase 9 Missionssystem ► Tutorials ► Kampagne ──�
 
 ---
 
+### Phase 1b – Rust-Kernel für die Physik (v0.4.x) · M · ADR-0008
+
+**Ziel:** Die heißen Schleifen laufen in Rust, die Python-Fassung bleibt als bitgleiche Referenz und
+Fallback erhalten. Für Spieler ändert sich nichts, außer dass genug Luft für die Objekte und Waffen
+der folgenden Phasen entsteht.
+
+| # | Aufgabe |
+| --- | --- |
+| 1b.1 | Crate `native/` ohne Abhängigkeiten, C-Schnittstelle: Terrain (`is_solid`, `circle_collides`, `normal_at`, `set_circle`), Körper-Kollision, Geschossschritt, Wurmflug-Frame, Batch-Flugbahnsimulation für die KI |
+| 1b.2 | `src/core/native.py`: Laden über `ctypes`, Abschalten mit `PY_WORMS_NATIVE=0`, Umschalten zur Laufzeit für Tests |
+| 1b.3 | Python-Referenz paritätsfest machen (gleiche Rechenreihenfolge, `sqrt` statt `hypot`, Produkte statt `**`), Aufrufe im Kern an den Kernel weiterleiten |
+| 1b.4 | Build: `uv run build-native`, PyInstaller nimmt die Bibliothek mit, CI baut den Kernel vor den Tests |
+| 1b.5 | Anzeige des aktiven Backends im Hauptmenü („Physik: Rust“ / „Physik: Python“) |
+
+**Abnahme:**
+
+- Paritätstests: Für zufällige Terrains, Geschosse und Wurmflüge liefern Rust und Python
+  bitgleiche Ergebnisse.
+- Eine komplette KI-Partie endet mit Rust und mit Python im identischen Zustand (Hash).
+- Ohne gebaute Bibliothek laufen alle Tests weiter (Fallback). Die Kernel-Tests werden dann übersprungen.
+- Leistungsbudget mit Rust: Das Verhältnis Szenario/Kalibrierung sinkt um mindestens Faktor 3. Der
+  neue Ausgangswert wird für das Rust-Backend festgehalten.
+
+**Status: umgesetzt (2026-11-01).** Entscheidungslog:
+
+- **C-ABI + ctypes statt PyO3:** crates.io war in der Build-Umgebung nicht erreichbar. Die Crate hat
+  keine Abhängigkeiten, gebaut wird nur mit `cargo`.
+- **Grobkörnige Aufrufe:** Die erste Fassung mit vielen kleinen Aufrufen war langsamer als Python,
+  weil jeder ctypes-Aufruf und jedes neue Array etwa 1–3 µs kostet. Jetzt gibt es einen Aufruf pro
+  Wurm-Lauf-Frame, einen pro Flug-Frame, einen für alle Geschosse eines Frames (der Kernel hält bei
+  der ersten Explosion an, damit die Reihenfolge wie in Python bleibt) und einen für alle
+  Standprüfungen. Dazu kommen wiederverwendete Puffer und eine Wurmtabelle, die im Frame nur gepatcht
+  wird.
+- **Ergebnis Budget-Szenario:** etwa 1,0 statt 1,3–1,4, also nur Faktor ≈ 1,35. **Das Abnahmekriterium
+  „Faktor 3“ ist für dieses Szenario nicht erreicht.** Es wird von der Python-Verwaltung pro Wurm und
+  Frame dominiert (8 Würmer laufen ständig), nicht von der Physik. Neuer Ausgangswert
+  `BASELINE_RATIO_NATIVE = 1.0`, beide Budgets werden getestet.
+- **Ergebnis im Spiel (KI gegen KI, 1 Minute):** Durchschnitt pro Frame 1,06 ms → 0,12 ms (≈ 9×). Das
+  99. Perzentil sinkt von 17,3 ms auf 1,0 ms, mit Python lag es also über dem 60-FPS-Budget von
+  16,7 ms. Ein Frame, in dem die KI rechnet, sinkt von 5,1 ms auf 0,5 ms. Die Zugplanung der KI ist
+  8–10× schneller. Dafür gibt es einen eigenen Test (mindestens Faktor 3).
+- **Parität:** Elf Tests vergleichen Rust und Python bitgenau: Terrain, Krater, Geschosse mit
+  Explosionen, KI-Probeläufe inklusive Luftschlag, Laufen/Springen/Fliegen in allen Kollisionsmodi und
+  eine komplette KI-Partie. Ein Fehler (falsches Wurm-Tabellenformat in der KI-Batch-Simulation) wurde
+  dadurch gefunden. Python-seitig wurden `hypot`/`**` durch `sqrt`/Produkte ersetzt.
+- **Weiterer Schritt bei Bedarf:** Den ganzen Wurm-Update-Frame mit Kontaktauflösung in Rust zu
+  rechnen, würde die restliche Verwaltung pro Wurm sparen. Sinnvoll wird das erst bei sehr vielen
+  Objekten (Phase 3/7).
+
+---
+
 ### Phase 2 – Waffen-Welle 1 (v0.5) · M · *W5 Teil 1*
 
 | # | Aufgabe |
@@ -616,6 +667,7 @@ ohne Python, 60 FPS bei 4 Teams × 4 Würmern auf der Referenzmaschine.
 | --- | --- | --- |
 | 0.3 | Fundament | (intern) alles Weitere wird schneller |
 | 0.4 | Bewegung, Animation, Kollision | Würmer fühlen sich lebendig an |
+| 0.4.x | Rust-Kernel | Luft für viele Objekte und eine genauere KI |
 | 0.5 | Waffen-Welle 1 | 16 Waffen, Waffenmenü |
 | 0.6 | Objekte & Kisten | Ketten, Kisten, Minen |
 | 0.7 | Battle-Einstellungen & Umwelt | jedes Spiel anders einstellbar |

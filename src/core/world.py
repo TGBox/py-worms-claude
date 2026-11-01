@@ -1,11 +1,13 @@
 """World simulation: worm movement, projectiles, explosions and damage."""
 
+import ctypes
 import math
 import random
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
+from src.core import native
 from src.core.constants import (
     CRAWL_CLIMB,
     CRAWL_SPEED_FACTOR,
@@ -36,8 +38,31 @@ def step_projectile(p: Projectile, world: "World", worms: list[Worm], dt: float)
 
     Returns "explode" or "gone" when the projectile ends, otherwise None; the projectile's
     position is then the impact point. Pure with respect to the world (no carving, no events),
-    so the AI uses it for dry runs.
+    so the AI uses it for dry runs. Runs in the Rust kernel when it is loaded.
     """
+    kernel = native.kernel
+    if kernel is not None:
+        owner = next((i for i, w in enumerate(worms) if w is p.owner), -1)
+        state = native.scratch.fill("single", native.pack_projectile(p, owner))
+        flat = [value for worm in worms for value in (worm.x, worm.y)]
+        terrain = world.terrain
+        code = kernel.wk_step_projectiles(
+            terrain.address,
+            terrain.width,
+            terrain.height,
+            state,
+            0,
+            1,
+            world.wind,
+            world.wind_acceleration,
+            world.gravity,
+            dt,
+            world.water_level,
+            native.scratch.fill("worms", flat),
+            len(worms),
+        )
+        native.unpack_projectile(p, state)
+        return native.RESULT_NAMES[code % 4] if code < 4 else None
     p.age += dt
     if p.fuse is not None:
         p.fuse -= dt
@@ -57,7 +82,7 @@ def step_projectile(p: Projectile, world: "World", worms: list[Worm], dt: float)
     distance = max(abs(dy), abs(dx))
     steps = int(distance / 2.0) + 1
     sx, sy = dx / steps, dy / steps
-    hit_radius_sq = (WORM_RADIUS + 2) ** 2
+    hit_radius_sq = (WORM_RADIUS + 2) * (WORM_RADIUS + 2)
     # Worms the projectile can hit along this frame's path (cheap broad phase).
     targets = []
     if p.bounce is None:
@@ -72,7 +97,8 @@ def step_projectile(p: Projectile, world: "World", worms: list[Worm], dt: float)
     for _ in range(steps):
         nx, ny = x + sx, y + sy
         for worm in targets:
-            if (worm.x - nx) ** 2 + (worm.y - ny) ** 2 <= hit_radius_sq:
+            ax, ay = worm.x - nx, worm.y - ny
+            if ax * ax + ay * ay <= hit_radius_sq:
                 p.x, p.y = nx, ny
                 return "explode"
         if is_solid(nx, ny):
@@ -87,7 +113,7 @@ def step_projectile(p: Projectile, world: "World", worms: list[Worm], dt: float)
                 p.vy -= 2 * dot * normal_y
             p.vx *= p.bounce
             p.vy *= p.bounce
-            if math.hypot(p.vx, p.vy) < 30 and normal_y < -0.5:
+            if math.sqrt(p.vx * p.vx + p.vy * p.vy) < 30 and normal_y < -0.5:
                 p.vx = p.vy = 0.0
                 p.asleep = True
             return None
@@ -154,7 +180,48 @@ class World(PhysicsWorld):
 
     # ------------------------------------------------------------- queries
     def worm_collides(self, worm: Worm, x: float, y: float) -> bool:
-        return self.body_collides(worm, x, y)
+        kernel = native.kernel
+        if kernel is None:
+            return self.body_collides(worm, x, y)
+        table, count, index = self._table_for(worm)
+        terrain = self.terrain
+        result = kernel.wk_body_collides(
+            terrain.address,
+            terrain.width,
+            terrain.height,
+            x,
+            y,
+            worm.radius,
+            worm.x,
+            worm.y,
+            table,
+            count,
+            index,
+            1 if worm.collides_with_bodies else 0,
+        )
+        return result != -1
+
+    # Native kernel: worm table of (x, y, radius, flags) in self.worms order. Inside update()
+    # it is built once and patched after each worm moves; elsewhere it is rebuilt per call.
+    _table_live = False
+
+    def _fill_worm_table(self) -> ctypes.Array:
+        flat: list[float] = []
+        for worm in self.worms:
+            flags = (1.0 if worm.alive else 0.0) + (2.0 if worm.collides_with_bodies else 0.0)
+            flat += (worm.x, worm.y, worm.radius, flags)
+        return native.scratch.fill("worm_table", flat)
+
+    def _table_for(self, worm: Worm) -> tuple[ctypes.Array, int, int]:
+        table = native.scratch.get("worm_table", 4) if self._table_live else self._fill_worm_table()
+        index = next((i for i, w in enumerate(self.worms) if w is worm), -1)
+        return table, len(self.worms), index
+
+    def _patch_worm_table(self, index: int) -> None:
+        worm = self.worms[index]
+        table = native.scratch.get("worm_table", 4 * len(self.worms))
+        flags = (1.0 if worm.alive else 0.0) + (2.0 if worm.collides_with_bodies else 0.0)
+        table[4 * index : 4 * index + 4] = (worm.x, worm.y, worm.radius, flags)
 
     def danger_near(self, worm: Worm, radius: float = 90.0) -> bool:
         """A live projectile (ticking or incoming) is close to the worm."""
@@ -216,6 +283,39 @@ class World(PhysicsWorld):
         if self.collision_mode == "ueberkriechen" and self._touching_worm(worm):
             speed *= CRAWL_SPEED_FACTOR
         worm.walk_progress += speed * dt
+        kernel = native.kernel
+        if kernel is None:
+            return self._walk_steps(worm, direction)
+        table, count, index = self._table_for(worm)
+        state = native.scratch.fill(
+            "walk", [worm.x, worm.y, worm.walk_progress, 1.0 if worm.grounded else 0.0]
+        )
+        out = native.scratch.get("walk_out", 3)
+        terrain = self.terrain
+        kernel.wk_walk(
+            terrain.address,
+            terrain.width,
+            terrain.height,
+            state,
+            direction,
+            worm.radius,
+            WORM_MAX_CLIMB,
+            CRAWL_CLIMB,
+            1 if self.collision_mode == "ueberkriechen" else 0,
+            table,
+            count,
+            index,
+            1 if worm.collides_with_bodies else 0,
+            out,
+        )
+        worm.x, worm.y, worm.walk_progress = state[0], state[1], state[2]
+        worm.grounded = state[3] != 0.0
+        worm.walk_distance += out[1]
+        if out[2]:
+            worm.set_state(WormState.FALL)
+        return out[0] != 0.0
+
+    def _walk_steps(self, worm: Worm, direction: int) -> bool:
         moved = True
         while worm.walk_progress >= 1.0:
             worm.walk_progress -= 1.0
@@ -301,13 +401,16 @@ class World(PhysicsWorld):
             }[kind]
         )
 
-    def _update_worm(self, worm: Worm, dt: float) -> None:
+    def _update_worm(self, worm: Worm, dt: float, standing: bool | None = None) -> None:
+        """`standing`: precomputed result of the ground check (native batch), if known."""
         worm.state_time += dt
         if worm.grounded:
             if not worm.walked and worm.state == WormState.WALK:
                 worm.set_state(WormState.IDLE)
             worm.walked = False
-            if self.worm_collides(worm, worm.x, worm.y + 1):
+            if standing is None:
+                standing = self.worm_collides(worm, worm.x, worm.y + 1)
+            if standing:
                 return
             worm.grounded = False
         if worm.state not in AIRBORNE_STATES:
@@ -316,6 +419,32 @@ class World(PhysicsWorld):
         dx, dy = worm.vx * dt, worm.vy * dt
         steps = max(1, math.ceil(max(abs(dx), abs(dy))))
         sx, sy = dx / steps, dy / steps
+        kernel = native.kernel
+        if kernel is not None:
+            state = native.scratch.fill("fly", [worm.x, worm.y])
+            hit = native.scratch.get("fly_hit", 2)
+            table, count, index = self._table_for(worm)
+            terrain = self.terrain
+            contact = kernel.wk_fly(
+                terrain.address,
+                terrain.width,
+                terrain.height,
+                state,
+                sx,
+                sy,
+                steps,
+                worm.radius,
+                table,
+                count,
+                index,
+                1 if worm.collides_with_bodies else 0,
+                hit,
+            )
+            worm.x, worm.y = state[0], state[1]
+            if contact:
+                self._resolve_worm_contact(worm, hit[0], hit[1])
+            self._check_out_of_world(worm)
+            return
         for _ in range(steps):
             nx, ny = worm.x + sx, worm.y + sy
             if not self.worm_collides(worm, nx, ny):
@@ -420,18 +549,85 @@ class World(PhysicsWorld):
         self.explode(worm.x, worm.y, 18, 8)
 
     # -------------------------------------------------------------- update
+    def _finish_projectile(self, p: Projectile, result: str | None) -> None:
+        if result == "explode":
+            p.alive = False
+            self.explode(p.x, p.y, p.explosion_radius, p.damage)
+        elif result == "gone":
+            p.alive = False
+            if p.y > self.water_level:
+                self.bus.emit(Splash(p.x, self.water_level))
+
+    def _step_projectiles_native(self, live_worms: list[Worm], dt: float) -> None:
+        """Same order and semantics as the Python loop, but one kernel call per explosion."""
+        kernel = native.kernel
+        assert kernel is not None
+        terrain = self.terrain
+        start = 0
+        while start < len(self.projectiles):
+            batch = self.projectiles  # explosions may append projectiles (clusters): re-pack
+            owners = {id(w): i for i, w in enumerate(live_worms)}
+            flat: list[float] = []
+            for p in batch[start:]:
+                flat += native.pack_projectile(p, owners.get(id(p.owner), -1))
+            states = native.scratch.fill("projectiles", flat)
+            worms = native.scratch.fill(
+                "worms", [value for w in live_worms for value in (w.x, w.y)]
+            )
+            count = len(batch) - start
+            code = kernel.wk_step_projectiles(
+                terrain.address,
+                terrain.width,
+                terrain.height,
+                states,
+                0,
+                count,
+                self.wind,
+                self.wind_acceleration,
+                self.gravity,
+                dt,
+                self.water_level,
+                worms,
+                len(live_worms),
+            )
+            ended, result = divmod(code, 4)
+            stepped = min(ended + 1, count)
+            for offset in range(stepped):
+                native.unpack_projectile(batch[start + offset], states, offset * native.P_LEN)
+            if ended >= count:
+                return
+            self._finish_projectile(batch[start + ended], native.RESULT_NAMES[result])
+            start += ended + 1
+
     def update(self, dt: float) -> None:
         live_worms = [w for w in self.worms if w.alive]
-        for p in self.projectiles:
-            result = step_projectile(p, self, live_worms, dt)
-            if result == "explode":
-                p.alive = False
-                self.explode(p.x, p.y, p.explosion_radius, p.damage)
-            elif result == "gone":
-                p.alive = False
-                if p.y > self.water_level:
-                    self.bus.emit(Splash(p.x, self.water_level))
+        if native.kernel is not None:
+            self._step_projectiles_native(live_worms, dt)
+        else:
+            for p in self.projectiles:
+                self._finish_projectile(p, step_projectile(p, self, live_worms, dt))
         self.projectiles = [p for p in self.projectiles if p.alive]
-        for worm in self.worms:
-            if worm.alive:
-                self._update_worm(worm, dt)
+        if native.kernel is None:
+            for worm in self.worms:
+                if worm.alive:
+                    self._update_worm(worm, dt)
+            return
+        kernel = native.kernel
+        table = self._fill_worm_table()
+        count = len(self.worms)
+        mask = native.scratch.get("ground_mask", count)
+        terrain = self.terrain
+        kernel.wk_ground_mask(terrain.address, terrain.width, terrain.height, table, count, mask)
+        self._table_live = True
+        moved = False  # once a worm moved, later ground checks must be recomputed
+        try:
+            for index, worm in enumerate(self.worms):
+                if not worm.alive:
+                    continue
+                before = (worm.x, worm.y, worm.alive)
+                self._update_worm(worm, dt, None if moved else mask[index] == 1.0)
+                if (worm.x, worm.y, worm.alive) != before:
+                    moved = True
+                    self._patch_worm_table(index)
+        finally:
+            self._table_live = False

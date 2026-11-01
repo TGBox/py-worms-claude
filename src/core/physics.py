@@ -101,13 +101,17 @@ class PhysicsWorld:
         for other in self.solid_bodies():
             if other is body or not other.alive or not other.collides_with_bodies:
                 continue
-            reach_sq = (body.radius + other.radius) ** 2
-            new_sq = (other.x - x) ** 2 + (other.y - y) ** 2
+            # Products instead of ** keep this bit-identical with the Rust kernel.
+            reach = body.radius + other.radius
+            reach_sq = reach * reach
+            ax, ay = other.x - x, other.y - y
+            new_sq = ax * ax + ay * ay
             if new_sq >= reach_sq:
                 continue
             # Already touching: moves that do not bring the bodies closer are allowed, so
             # touching bodies can always separate (e.g. jumping away from a neighbour).
-            current_sq = (other.x - body.x) ** 2 + (other.y - body.y) ** 2
+            bx, by = other.x - body.x, other.y - body.y
+            current_sq = bx * bx + by * by
             if current_sq <= reach_sq and new_sq >= current_sq:
                 continue
             return other

@@ -1,17 +1,18 @@
 """Destructible pixel terrain stored as a flat bytearray (1 = solid, 0 = air)."""
 
+import ctypes
 import math
 
-_CIRCLE_SAMPLES = 12
-_CIRCLE_OFFSETS = [
-    (math.cos(2 * math.pi * i / _CIRCLE_SAMPLES), math.sin(2 * math.pi * i / _CIRCLE_SAMPLES))
-    for i in range(_CIRCLE_SAMPLES)
-]
-_CIRCLE_POINTS = [(0.0, 0.0), *_CIRCLE_OFFSETS]  # centre first, then the rim
+from src.core import native
+from src.core.geometry import CIRCLE_POINTS
 
 
 class Terrain:
-    """Row-major solid/air grid. All geometry operations are pure Python."""
+    """Row-major solid/air grid.
+
+    The hot queries use the Rust kernel when it is loaded (`src/core/native.py`); the Python code
+    below is the bit-identical reference and fallback. `data` must never be resized.
+    """
 
     def __init__(self, width: int, height: int, data: bytearray | None = None) -> None:
         self.width = width
@@ -21,6 +22,14 @@ class Terrain:
             raise ValueError("terrain data size does not match dimensions")
         # Circles (x, y, r) removed since the renderer last synced; consumed by the renderer.
         self.carved: list[tuple[int, int, int]] = []
+        self._address = 0
+
+    @property
+    def address(self) -> int:
+        """Address of the grid storage for the native kernel (computed once)."""
+        if not self._address:
+            self._address = native.buffer_address(self.data)
+        return self._address
 
     @classmethod
     def from_alpha(cls, width: int, height: int, alpha: bytes, threshold: int = 128) -> "Terrain":
@@ -49,8 +58,14 @@ class Terrain:
         return self.data[yi * self.width + xi] == 1
 
     def circle_collides(self, cx: float, cy: float, radius: float) -> bool:
+        kernel = native.kernel
+        if kernel is not None:
+            return (
+                kernel.wk_circle_collides(self.address, self.width, self.height, cx, cy, radius)
+                == 1
+            )
         width, height, data = self.width, self.height, self.data
-        for ox, oy in _CIRCLE_POINTS:
+        for ox, oy in CIRCLE_POINTS:
             x = cx + ox * radius
             y = cy + oy * radius
             if x < 0 or y < 0:
@@ -61,6 +76,10 @@ class Terrain:
         return False
 
     def _set_circle(self, cx: float, cy: float, radius: float, value: int) -> None:
+        kernel = native.kernel
+        if kernel is not None:
+            kernel.wk_set_circle(self.address, self.width, self.height, cx, cy, radius, value)
+            return
         r = int(radius)
         icx, icy = int(cx), int(cy)
         for dy in range(-r, r + 1):
@@ -102,13 +121,18 @@ class Terrain:
 
     def normal_at(self, x: float, y: float, radius: int = 5) -> tuple[float, float]:
         """Approximate surface normal pointing away from solid ground."""
+        kernel = native.kernel
+        if kernel is not None:
+            out = (ctypes.c_double * 2)()
+            kernel.wk_normal_at(self.address, self.width, self.height, x, y, radius, out)
+            return (out[0], out[1])
         nx = ny = 0.0
         for dy in range(-radius, radius + 1):
             for dx in range(-radius, radius + 1):
                 if dx * dx + dy * dy <= radius * radius and self.is_solid(x + dx, y + dy):
                     nx -= dx
                     ny -= dy
-        length = math.hypot(nx, ny)
+        length = math.sqrt(nx * nx + ny * ny)  # not hypot: must match the Rust kernel
         if length < 1e-6:
             return (0.0, -1.0)
         return (nx / length, ny / length)
