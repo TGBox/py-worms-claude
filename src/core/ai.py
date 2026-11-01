@@ -5,6 +5,7 @@ import random
 from collections.abc import Generator
 from dataclasses import dataclass, replace
 
+from src.core import native
 from src.core.constants import AIM_MAX, AIM_MIN, AIM_SPEED, SIM_DT, WORM_RADIUS
 from src.core.entities import JumpKind, Projectile, Worm
 from src.core.match import Match, Phase
@@ -43,6 +44,9 @@ class ShotPlan:
 def simulate_projectiles(world: World, projectiles: list[Projectile]) -> list[tuple[float, float]]:
     """Dry-run projectiles and return their detonation points (lost ones are skipped)."""
     live = [w for w in world.worms if w.alive]
+    kernel = native.kernel
+    if kernel is not None and projectiles:
+        return _simulate_native(kernel, world, live, projectiles)
     impacts = []
     for projectile in projectiles:
         elapsed = 0.0
@@ -54,6 +58,42 @@ def simulate_projectiles(world: World, projectiles: list[Projectile]) -> list[tu
             if result == "gone":
                 break
             elapsed += SIM_DT
+    return impacts
+
+
+def _simulate_native(
+    kernel: object, world: World, live: list[Worm], projectiles: list[Projectile]
+) -> list[tuple[float, float]]:
+    """Same as the Python loop above, in a single kernel call."""
+    terrain = world.terrain
+    owners = {id(w): i for i, w in enumerate(live)}
+    flat: list[float] = []
+    for projectile in projectiles:
+        flat += native.pack_projectile(projectile, owners.get(id(projectile.owner), -1))
+    states = native.scratch.fill("simulate", flat)
+    worms = native.scratch.fill("simulate_worms", [v for w in live for v in (w.x, w.y)])
+    out = native.scratch.get("simulate_out", 3 * len(projectiles))
+    kernel.wk_simulate(  # type: ignore[attr-defined]
+        terrain.address,
+        terrain.width,
+        terrain.height,
+        states,
+        len(projectiles),
+        world.wind,
+        world.wind_acceleration,
+        world.gravity,
+        SIM_DT,
+        world.water_level,
+        worms,
+        len(live),
+        SIM_MAX_TIME,
+        out,
+    )
+    impacts = []
+    for slot, projectile in enumerate(projectiles):
+        native.unpack_projectile(projectile, states, slot * native.P_LEN)
+        if out[slot * 3] == 1.0:
+            impacts.append((out[slot * 3 + 1], out[slot * 3 + 2]))
     return impacts
 
 

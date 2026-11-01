@@ -1,6 +1,6 @@
 [project]
 name = "py-worms-claude"
-version = "0.3.3"
+version = "0.3.4"
 description = "A python adaptation of the classic worms game."
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -15,6 +15,7 @@ test = "pytest:main"
 build = "src.build:main"
 format = "src.tools:format_code"
 lint = "src.tools:lint_code"
+build-native = "src.tools:build_native"
 
 [dependency-groups]
 dev = [

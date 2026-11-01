@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import pygame
 
 from src.controls import Action, get_controls
+from src.core import native
 from src.core.match import TeamConfig
 from src.core.scheme import list_schemes, load_scheme_by_name
 from src.maps import RANDOM_MAP, available_maps
@@ -130,7 +131,7 @@ class ListMenuScene(Scene):
 
 
 class MainMenuScene(ListMenuScene):
-    subtitle = "Ein Worms-Klon in Python"
+    subtitle = f"Ein Worms-Klon in Python  ·  Physik: {native.backend_name()}"
     footer = CONTROLS_HELP
 
     def items(self) -> list[MenuItem]:

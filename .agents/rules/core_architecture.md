@@ -15,3 +15,8 @@
 4. **Inhalte statt Umbauten**:
    - Neue Waffen sind ein `WeaponDef` in `src/core/weapons/catalog.py`. Neues Verhalten ist eine Klasse mit `@register_behavior`, nicht ein Sonderfall in `World` oder `Match`.
    - Jede neue Waffe bekommt mindestens einen Logiktest mit messbarem Effekt.
+
+5. **Rust-Kernel (ADR-0008)**:
+   - Die heißen Schleifen gibt es doppelt: in Python (Referenz und Fallback) und in `native/src/lib.rs`. Jede Änderung an Terrain-Abfragen, Geschossschritt, Laufen, Flug oder Körper-Kollision muss in beiden gleich umgesetzt werden.
+   - Keine `math.hypot` oder `**` in diesen Pfaden, gleiche Rechenreihenfolge. `tests/test_native.py` muss grün bleiben, nach `uv run build-native`.
+

@@ -6,3 +6,5 @@ dist/
 *.spec
 .pytest_cache/
 .ruff_cache/
+native/target/
+src/core/_native/

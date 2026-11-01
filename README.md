@@ -7,6 +7,11 @@ Ein Worms-Klon in Python: rundenbasierte Artillerie-Schlachten auf zerstörbarem
 Entwickelt mit **Pygame-ce (Community Edition)**. Die komplette Spiellogik (`src/core/`) ist reines
 Python ohne pygame und dadurch headless testbar.
 
+Die rechenintensiven Physikschleifen gibt es zusätzlich als optionalen **Rust-Kernel** (`native/`,
+ADR-0008). Er ist bitgleich zur Python-Fassung und macht Frames im Schnitt etwa 9× schneller, die
+KI-Planung 8–10×. Ohne Rust läuft alles unverändert in Python. Welches Backend aktiv ist, zeigt das
+Hauptmenü („Physik: Rust“ / „Physik: Python“).
+
 ## Features
 
 - 2–4 Teams mit je 1–6 Würmern, jedes Team wahlweise **Mensch** (Hotseat) oder **KI**
@@ -70,6 +75,9 @@ Voraussetzung: [uv](https://docs.astral.sh/uv/)
 # Abhängigkeiten synchronisieren
 uv sync
 
+# Optional: Rust-Physik-Kernel bauen (braucht Rust, unter Windows plus „Build Tools for Visual Studio“)
+uv run build-native
+
 # Spiel starten
 uv run main
 
@@ -94,6 +102,7 @@ py-worms-claude/
 │   ├── schemes/        # Spielschemata (Standard, Schnell)
 │   └── sprites/        # Texturen, Sprites und Grafiken
 ├── docs/               # Implementierungsplan und Architekturentscheidungen (ADRs)
+├── native/             # Rust-Kernel für die Physik (C-ABI, über ctypes geladen)
 ├── src/
 │   ├── core/           # Reine Spiellogik ohne pygame
 │   │   ├── constants.py   # Feste Simulationskonstanten
@@ -102,6 +111,8 @@ py-worms-claude/
 │   │   ├── events.py      # Typisierte Ereignisse + Ereignisbus
 │   │   ├── persistence.py # Datenordner, versioniertes JSON, Migrationen
 │   │   ├── physics.py     # Körper-Basis, Raster-Abfragen
+│   │   ├── native.py      # Lädt den Rust-Kernel, Fallback auf Python
+│   │   ├── geometry.py    # Gemeinsame Geometrietabellen (Python und Rust)
 │   │   ├── terrain.py     # Zerstörbares Pixel-Terrain
 │   │   ├── mapgen.py      # Prozeduraler Insel-Generator
 │   │   ├── entities.py    # Würmer und Geschosse
@@ -123,6 +134,7 @@ py-worms-claude/
     ├── test_foundation.py  # Schema, Ereignisse, Register, Persistenz, Determinismus
     ├── test_performance.py # Leistungsbudget der Simulation
     ├── test_movement.py    # Sprünge, Wurm-Zustände, Kollisionsmodi, KI-Bewegung
+    ├── test_native.py      # Parität Rust-Kernel ↔ Python (bitgenau)
     ├── test_smoke.py   # Headless-Tests der kompletten pygame-Anwendung
     └── test_game.py    # Einstellungen
 ```

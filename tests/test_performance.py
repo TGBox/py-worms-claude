@@ -7,6 +7,9 @@ so the budget holds on fast and slow machines alike. Raise BASELINE_RATIO only o
 import math
 import time
 
+import pytest
+
+from src.core import native
 from src.core.constants import WORM_RADIUS
 from src.core.entities import Projectile, Worm
 from src.core.mapgen import generate_terrain
@@ -15,7 +18,10 @@ from src.core.world import World
 
 DT = 1 / 60
 STEPS = 600
-BASELINE_RATIO = 1.4  # scenario/calibration ratio measured in phase 0 (CPython 3.13)
+# Scenario/calibration ratios when the budgets were set (CPython 3.13). Separate budgets per
+# physics backend (ADR-0008); raise them only on purpose.
+BASELINE_RATIO = 1.4  # pure Python reference, phase 0
+BASELINE_RATIO_NATIVE = 1.0  # Rust kernel, phase 1b
 TOLERANCE = 1.2  # +20 % allowed (plan C.0)
 
 
@@ -74,5 +80,12 @@ def measure_ratio(rounds: int = 5) -> float:
 
 
 def test_simulation_stays_within_budget() -> None:
+    with native.disabled():
+        ratio = measure_ratio()
+    assert ratio < BASELINE_RATIO * TOLERANCE, f"Python: ratio {ratio:.2f}"
+
+
+@pytest.mark.skipif(not native.available(), reason="Rust-Kernel nicht gebaut")
+def test_native_simulation_stays_within_budget() -> None:
     ratio = measure_ratio()
-    assert ratio < BASELINE_RATIO * TOLERANCE, f"ratio {ratio:.2f}"
+    assert ratio < BASELINE_RATIO_NATIVE * TOLERANCE, f"Rust: ratio {ratio:.2f}"
