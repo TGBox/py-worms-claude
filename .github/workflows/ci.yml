@@ -26,8 +26,18 @@ jobs:
       - name: Lint with Ruff
         run: uv run ruff check .
 
-      - name: Run Tests
+      - name: Build Rust physics kernel
+        run: uv run build-native
+
+      - name: Run Tests (Rust kernel)
         env:
           SDL_VIDEODRIVER: dummy
           ARCADE_HEADLESS: "True"
+        run: uv run pytest
+
+      - name: Run Tests (Python fallback)
+        env:
+          SDL_VIDEODRIVER: dummy
+          ARCADE_HEADLESS: "True"
+          PY_WORMS_NATIVE: "0"
         run: uv run pytest

@@ -1,8 +1,12 @@
 # Changelog
 
+## SemVer v0.3.5
+
+- 2026-11-01 (d15513c): fix: update ci.yml to run tests for the rust kernel, as well
+
 ## SemVer v0.3.4
 
-- 2026-11-01 (b76150b): breaking(core): rewrite physics engine in rust to avoid performance issues down the road, fix: adjust README, implementation plan and agent rules
+- 2026-11-01 (b9e0f7a): breaking(core): rewrite physics engine in rust to avoid performance issues down the road, fix: adjust README, implementation plan and agent rules
 
 ## SemVer v0.3.3
 
